@@ -90,11 +90,13 @@ export class VeriFaceError extends Error {
 
 export interface VeriFaceConfig {
   tenantId: string
+  apiKey: string  // Required: vf_live_... or vf_test_...
   apiBaseUrl?: string  // defaults to relative path
   modelVersion?: string
   captureDurationMs?: number  // default 1800ms (rPPG needs ~1.5s)
   livenessThreshold?: number  // default 0.78
   highSecurity?: boolean
+  theme?: 'light' | 'dark' | 'auto'  // for SDK UI components
 }
 
 export interface VeriFaceLivenessReport {
@@ -158,11 +160,13 @@ export class VeriFace {
   constructor(config: VeriFaceConfig) {
     this.config = {
       tenantId: config.tenantId,
+      apiKey: config.apiKey,
       apiBaseUrl: config.apiBaseUrl ?? '',
       modelVersion: config.modelVersion ?? 'v1.0.0',
       captureDurationMs: config.captureDurationMs ?? 1800,
       livenessThreshold: config.livenessThreshold ?? 0.78,
       highSecurity: config.highSecurity ?? false,
+      theme: config.theme ?? 'auto',
     }
   }
 
@@ -208,7 +212,10 @@ export class VeriFace {
 
     const response = await fetch(`${this.config.apiBaseUrl}/api/session/init`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.config.apiKey}`,
+      },
       body: JSON.stringify({
         tenantId: this.config.tenantId,
         flow,
@@ -608,7 +615,10 @@ export class VeriFace {
 
     const response = await fetch(`${this.config.apiBaseUrl}/api/session/verify`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.config.apiKey}`,
+      },
       body: JSON.stringify({
         sessionId,
         tenantId: this.config.tenantId,

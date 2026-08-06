@@ -1,20 +1,21 @@
 /**
- * GET /api/audit?tenantId=xxx&limit=50&offset=0
- * Fetch the hash-chained audit log for a tenant.
+ * GET /api/audit?limit=50&offset=0
+ * Fetch the hash-chained audit log for the authenticated tenant.
  *
- * POST /api/audit/verify?tenantId=xxx
- * Walk the audit chain and verify integrity (detect tampering).
+ * Requires 'audit:read' scope. Tenant ID is derived from the API key
+ * (NOT from query params — prevents tenant spoofing).
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { queryAuditLog, verifyAuditChain } from '@/lib/audit'
+import { queryAuditLog } from '@/lib/audit'
+import { requireApiKey } from '@/lib/auth'
 
 export async function GET(req: NextRequest) {
+  const authResult = await requireApiKey(req, 'audit:read')
+  if (!authResult.ok) return authResult.response
+
   const url = new URL(req.url)
-  const tenantId = url.searchParams.get('tenantId')
-  if (!tenantId) {
-    return NextResponse.json({ success: false, error: 'tenantId required' }, { status: 400 })
-  }
+  const tenantId = authResult.auth.tenantId!
 
   const limit = parseInt(url.searchParams.get('limit') ?? '50', 10)
   const offset = parseInt(url.searchParams.get('offset') ?? '0', 10)
@@ -40,6 +41,7 @@ export async function GET(req: NextRequest) {
       prevHash: e.prevHash,
       thisHash: e.thisHash,
       actorIp: e.actorIp,
+      apiKeyId: e.apiKeyId,
       createdAt: e.createdAt,
     })),
   })

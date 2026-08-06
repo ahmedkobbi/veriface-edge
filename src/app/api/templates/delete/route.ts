@@ -2,26 +2,26 @@
  * POST /api/templates/delete
  * GDPR Article 17 — Right to be Forgotten.
  *
- * Cryptographic erasure:
- *   1. Delete template from Postgres + Qdrant (immediate)
- *   2. Schedule KMS DEK destruction (renders any backup unrecoverable)
- *   3. Issue signed revocation receipt (proof of deletion)
- *
- * Total deletion latency: < 5 seconds primary, < 24h backups.
+ * Requires 'tenant:admin' scope (sensitive operation).
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { revokeTemplate } from '@/lib/tenant'
 import { appendAudit } from '@/lib/audit'
 import { enqueueWebhook } from '@/lib/webhook'
+import { requireApiKey } from '@/lib/auth'
 
 export async function POST(req: NextRequest) {
+  const authResult = await requireApiKey(req, 'tenant:admin')
+  if (!authResult.ok) return authResult.response
+
   try {
     const body = await req.json()
-    const { tenantId, externalUserId } = body
-    if (!tenantId || !externalUserId) {
+    const { externalUserId } = body
+    const tenantId = authResult.auth.tenantId!
+    if (!externalUserId) {
       return NextResponse.json(
-        { success: false, error: 'tenantId and externalUserId required' },
+        { success: false, error: 'externalUserId required' },
         { status: 400 },
       )
     }
@@ -32,6 +32,7 @@ export async function POST(req: NextRequest) {
       tenantId,
       eventType: 'template.revoked',
       payload: { externalUserId, deleted: result.deleted, receipt: result.revocationReceipt },
+      apiKeyId: authResult.auth.apiKeyId,
     })
 
     await enqueueWebhook(tenantId, 'template.revoked', {

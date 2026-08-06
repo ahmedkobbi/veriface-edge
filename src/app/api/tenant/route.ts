@@ -1,16 +1,23 @@
 /**
  * POST /api/tenant
- * Create a new enterprise tenant. Returns tenant ID + signing private key.
+ * Create a new enterprise tenant + initial API key.
  *
- * The signing private key is returned ONCE — it must be embedded in the
- * client SDK configuration. Store it in your secrets manager (Vault, KMS, etc.)
+ * Returns:
+ *   - tenant metadata
+ *   - signing private key (for client SDK)
+ *   - initial API key plaintext (for backend integration)
+ *
+ * Both secrets are shown ONCE — caller must persist them.
  *
  * GET /api/tenant?id=xxx
- * Fetch tenant metadata (public fields only — signing key never returned).
+ * Fetch tenant metadata (requires API key with 'tenant:admin' scope,
+ * OR can be called without auth if the id is provided in the URL — for
+ * bootstrap scenarios where the caller doesn't yet have an API key).
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createTenant, getTenant } from '@/lib/tenant'
+import { createApiKey } from '@/lib/auth'
 
 export async function POST(req: NextRequest) {
   try {
@@ -21,11 +28,19 @@ export async function POST(req: NextRequest) {
     }
 
     const result = await createTenant(name)
+    const apiKey = await createApiKey(result.tenant.id, {
+      label: 'Initial API Key',
+      scopes: '*',
+      environment: 'live',
+    })
+
     return NextResponse.json({
       success: true,
       tenant: result.tenant,
       signingPrivateKey: result.signingPrivateKey,
-      warning: 'Store signingPrivateKey in your secrets manager. It will NOT be returned again.',
+      apiKey: apiKey.plaintext,
+      apiKeyId: apiKey.id,
+      warning: 'Store signingPrivateKey and apiKey in your secrets manager. They will NOT be returned again.',
     })
   } catch (e) {
     return NextResponse.json(
@@ -55,6 +70,7 @@ export async function GET(req: NextRequest) {
       livenessThreshold: tenant.livenessThreshold,
       maxSessionAgeSec: tenant.maxSessionAgeSec,
       webhookUrl: tenant.webhookUrl,
+      rateLimitPerMin: tenant.rateLimitPerMin,
       active: tenant.active,
       createdAt: tenant.createdAt,
     },

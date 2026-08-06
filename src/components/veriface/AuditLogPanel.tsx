@@ -22,24 +22,28 @@ interface AuditEntry {
   prevHash: string
   thisHash: string
   actorIp: string | null
+  apiKeyId: string | null
   createdAt: string
 }
 
 interface AuditLogPanelProps {
   tenantId: string | null
+  apiKey: string | null
   refreshKey: number
 }
 
-export function AuditLogPanel({ tenantId, refreshKey }: AuditLogPanelProps) {
+export function AuditLogPanel({ tenantId, apiKey, refreshKey }: AuditLogPanelProps) {
   const [entries, setEntries] = useState<AuditEntry[]>([])
   const [chainValid, setChainValid] = useState<boolean | null>(null)
   const [loading, setLoading] = useState(false)
 
   const fetchEntries = async () => {
-    if (!tenantId) return
+    if (!tenantId || !apiKey) return
     setLoading(true)
     try {
-      const res = await fetch(`/api/audit?tenantId=${tenantId}&limit=50`)
+      const res = await fetch(`/api/audit?limit=50`, {
+        headers: { 'Authorization': `Bearer ${apiKey}` },
+      })
       const data = await res.json()
       if (data.success) {
         setEntries(data.entries)
@@ -52,9 +56,11 @@ export function AuditLogPanel({ tenantId, refreshKey }: AuditLogPanelProps) {
   }
 
   const verifyChain = async () => {
-    if (!tenantId) return
+    if (!tenantId || !apiKey) return
     try {
-      const res = await fetch(`/api/verify-audit?tenantId=${tenantId}`)
+      const res = await fetch(`/api/verify-audit`, {
+        headers: { 'Authorization': `Bearer ${apiKey}` },
+      })
       const data = await res.json()
       setChainValid(data.valid)
     } catch {
@@ -65,7 +71,7 @@ export function AuditLogPanel({ tenantId, refreshKey }: AuditLogPanelProps) {
   useEffect(() => {
     fetchEntries()
     verifyChain()
-  }, [tenantId, refreshKey])
+  }, [tenantId, apiKey, refreshKey])
 
   return (
     <Card className="bg-slate-900/50 border-slate-800">
@@ -110,7 +116,7 @@ export function AuditLogPanel({ tenantId, refreshKey }: AuditLogPanelProps) {
             </p>
           ) : (
             <div className="space-y-2">
-              {entries.map((entry, idx) => {
+              {entries.map((entry) => {
                 const eventColors: Record<string, string> = {
                   'auth.success': 'bg-emerald-950/30 text-emerald-300 border-emerald-800/50',
                   'auth.failure': 'bg-red-950/30 text-red-300 border-red-800/50',
@@ -119,6 +125,12 @@ export function AuditLogPanel({ tenantId, refreshKey }: AuditLogPanelProps) {
                   'template.revoked': 'bg-amber-950/30 text-amber-300 border-amber-800/50',
                   'injection.suspected': 'bg-red-950/30 text-red-300 border-red-800/50',
                   'webhook.delivered': 'bg-blue-950/30 text-blue-300 border-blue-800/50',
+                  'api_key.created': 'bg-purple-950/30 text-purple-300 border-purple-800/50',
+                  'api_key.revoked': 'bg-orange-950/30 text-orange-300 border-orange-800/50',
+                  'token.revoked': 'bg-rose-950/30 text-rose-300 border-rose-800/50',
+                  'token.verified': 'bg-teal-950/30 text-teal-300 border-teal-800/50',
+                  'webauthn.enrolled': 'bg-indigo-950/30 text-indigo-300 border-indigo-800/50',
+                  'webauthn.verified': 'bg-indigo-950/30 text-indigo-300 border-indigo-800/50',
                 }
                 const color = eventColors[entry.eventType] || 'bg-slate-950/30 text-slate-400 border-slate-800'
                 return (
@@ -142,6 +154,11 @@ export function AuditLogPanel({ tenantId, refreshKey }: AuditLogPanelProps) {
                       <span className="text-[9px] text-slate-600 font-mono">
                         hash: {entry.thisHash.slice(0, 16)}…
                       </span>
+                      {entry.apiKeyId && (
+                        <span className="text-[9px] text-slate-600 font-mono">
+                          • key: {entry.apiKeyId.slice(0, 8)}…
+                        </span>
+                      )}
                     </div>
                   </div>
                 )

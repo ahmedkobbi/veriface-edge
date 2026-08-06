@@ -45,6 +45,7 @@ export function DemoConsole() {
   // Tenant state
   const [tenantId, setTenantId] = useState<string | null>(null)
   const [signingKey, setSigningKey] = useState<string | null>(null)
+  const [apiKey, setApiKey] = useState<string | null>(null)
   const [externalUserId, setExternalUserId] = useState('demo-user-001')
   const [refreshKey, setRefreshKey] = useState(0)
 
@@ -71,6 +72,7 @@ export function DemoConsole() {
     cancel,
   } = useFaceAuth({
     tenantId: tenantId ?? '',
+    apiKey: apiKey ?? '',
     livenessThreshold: LIVENESS_THRESHOLD,
     captureDurationMs: 2500,  // 2.5s for demo (production: 1.8s)
     videoRef,
@@ -92,6 +94,7 @@ export function DemoConsole() {
         const parsed = JSON.parse(stored)
         setTenantId(parsed.tenantId)
         setSigningKey(parsed.signingPrivateKey)
+        setApiKey(parsed.apiKey)
         return
       } catch {}
     }
@@ -108,13 +111,16 @@ export function DemoConsole() {
       })
       const data = await res.json()
       if (data.success) {
-        const { id, signingPrivateKey } = data.tenant
+        const tenantId = data.tenant.id
+        const { signingPrivateKey, apiKey: newApiKey } = data
         localStorage.setItem(DEMO_TENANT_KEY, JSON.stringify({
-          tenantId: id,
+          tenantId,
           signingPrivateKey,
+          apiKey: newApiKey,
         }))
-        setTenantId(id)
+        setTenantId(tenantId)
         setSigningKey(signingPrivateKey)
+        setApiKey(newApiKey)
       }
     } catch (e) {
       console.error('Tenant creation failed:', e)
@@ -127,6 +133,7 @@ export function DemoConsole() {
     localStorage.removeItem(DEMO_TENANT_KEY)
     setTenantId(null)
     setSigningKey(null)
+    setApiKey(null)
     setEnrollResult(null)
     setAuthResult(null)
     setDeleteResult(null)
@@ -161,12 +168,15 @@ export function DemoConsole() {
   }
 
   const handleDelete = async () => {
-    if (!externalUserId || !tenantId) return
+    if (!externalUserId || !tenantId || !apiKey) return
     setBusy(true)
     try {
       const res = await fetch('/api/templates/delete', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
         body: JSON.stringify({ tenantId, externalUserId }),
       })
       const data = await res.json()
@@ -244,6 +254,19 @@ export function DemoConsole() {
                 </code>
                 {signingKey && (
                   <Button size="sm" variant="ghost" onClick={() => copyToClipboard(signingKey)} className="h-7 w-7 p-0">
+                    <Copy className="w-3 h-3" />
+                  </Button>
+                )}
+              </div>
+            </div>
+            <div>
+              <Label className="text-slate-400 mb-1 block">API Key (Bearer token)</Label>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 px-2 py-1.5 bg-slate-950 rounded font-mono text-slate-500 text-[10px] truncate">
+                  {apiKey ? apiKey.slice(0, 24) + '…' : '—'}
+                </code>
+                {apiKey && (
+                  <Button size="sm" variant="ghost" onClick={() => copyToClipboard(apiKey)} className="h-7 w-7 p-0">
                     <Copy className="w-3 h-3" />
                   </Button>
                 )}
@@ -416,7 +439,7 @@ export function DemoConsole() {
         </TabsList>
 
         <TabsContent value="audit" className="mt-4">
-          <AuditLogPanel tenantId={tenantId} refreshKey={refreshKey} />
+          <AuditLogPanel tenantId={tenantId} apiKey={apiKey} refreshKey={refreshKey} />
         </TabsContent>
 
         <TabsContent value="gdpr" className="mt-4">

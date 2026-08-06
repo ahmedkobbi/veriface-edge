@@ -1,18 +1,17 @@
 /**
- * GET /api/verify-audit?tenantId=xxx
+ * GET /api/verify-audit
  * Walk the entire audit chain for a tenant and verify integrity.
- * Detects any tampering (modified entries, broken links).
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAuditChain } from '@/lib/audit'
+import { requireApiKey } from '@/lib/auth'
 
 export async function GET(req: NextRequest) {
-  const url = new URL(req.url)
-  const tenantId = url.searchParams.get('tenantId')
-  if (!tenantId) {
-    return NextResponse.json({ success: false, error: 'tenantId required' }, { status: 400 })
-  }
+  const authResult = await requireApiKey(req, 'audit:read')
+  if (!authResult.ok) return authResult.response
+
+  const tenantId = authResult.auth.tenantId!
   const result = await verifyAuditChain(tenantId)
   return NextResponse.json({ success: true, ...result })
 }

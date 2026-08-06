@@ -136,6 +136,18 @@ export function aesGcmEncrypt(
   return { ciphertext, iv, authTag }
 }
 
+export function aesGcmDecrypt(
+  key: Uint8Array,
+  data: AesGcmCiphertext,
+  aad?: Uint8Array,
+): Uint8Array {
+  const sealed = new Uint8Array(data.ciphertext.length + data.authTag.length)
+  sealed.set(data.ciphertext)
+  sealed.set(data.authTag, data.ciphertext.length)
+  const cipher = gcm(key, data.iv, aad)
+  return cipher.decrypt(sealed)
+}
+
 export function blake3Hex(input: string | Uint8Array): string {
   const bytes = typeof input === 'string' ? utf8.encode(input) : input
   return hex.encode(blake3(bytes))
@@ -167,6 +179,20 @@ export function createCommitment(
   input.set(embBytes, COMMIT_DOMAIN.length)
   input.set(nonce, COMMIT_DOMAIN.length + embBytes.length)
   return hex.encode(blake3(input))
+}
+
+export function verifyCommitment(
+  embedding: Float32Array,
+  nonce: Uint8Array,
+  expectedCommitment: string,
+): boolean {
+  const actual = createCommitment(embedding, nonce)
+  if (actual.length !== expectedCommitment.length) return false
+  let diff = 0
+  for (let i = 0; i < actual.length; i++) {
+    diff |= actual.charCodeAt(i) ^ expectedCommitment.charCodeAt(i)
+  }
+  return diff === 0
 }
 
 export function secureRandom(length: number): Uint8Array {

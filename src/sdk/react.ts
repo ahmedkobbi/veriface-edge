@@ -21,7 +21,6 @@ export interface UseFaceAuthOptions extends VeriFaceConfig {
   onStatus?: (status: VeriFaceStatus) => void
   onFrame?: (frame: { rppgProgress: number; liveness: VeriFaceLivenessReport | null }) => void
 }
-
 export interface UseFaceAuthReturn {
   status: VeriFaceStatus
   liveness: VeriFaceLivenessReport | null
@@ -47,13 +46,16 @@ export function useFaceAuth(options: UseFaceAuthOptions): UseFaceAuthReturn {
 
   // Initialize SDK on mount
   useEffect(() => {
+    if (!options.tenantId || !options.apiKey) return
     const sdk = new VeriFace({
       tenantId: options.tenantId,
+      apiKey: options.apiKey,
       apiBaseUrl: options.apiBaseUrl,
       modelVersion: options.modelVersion,
       captureDurationMs: options.captureDurationMs,
       livenessThreshold: options.livenessThreshold,
       highSecurity: options.highSecurity,
+      theme: options.theme,
     })
 
     const unsubStatus = sdk.onStatus((s) => {
@@ -74,7 +76,7 @@ export function useFaceAuth(options: UseFaceAuthOptions): UseFaceAuthReturn {
       sdk.destroy()
       sdkRef.current = null
     }
-  }, [options.tenantId])
+  }, [options.tenantId, options.apiKey])
 
   const runFlow = useCallback(async (
     flow: 'enroll' | 'authenticate',

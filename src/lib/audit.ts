@@ -30,12 +30,23 @@ export type AuditEventType =
   | 'webhook.delivered'
   | 'webhook.dead_lettered'
   | 'injection.suspected'
+  | 'api_key.created'
+  | 'api_key.revoked'
+  | 'api_key.used'
+  | 'token.revoked'
+  | 'token.verified'
+  | 'webauthn.enrolled'
+  | 'webauthn.verified'
+  | 'rate_limit.exceeded'
+  | 'session.expired'
+  | 'session.cleanup'
 
 export interface AuditEvent {
   tenantId: string
   eventType: AuditEventType
   payload: Record<string, unknown>
   actorIp?: string
+  apiKeyId?: string
 }
 
 const GENESIS_HASH = '0'.repeat(64)
@@ -66,6 +77,7 @@ export async function appendAudit(event: AuditEvent): Promise<{
       thisHash: 'pending',
       chainIndex,
       actorIp: event.actorIp,
+      apiKeyId: event.apiKeyId,
     },
   })
 

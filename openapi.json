@@ -1,0 +1,493 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "VeriFace Edge API",
+    "version": "1.0.0",
+    "description": "Privacy-first web facial authentication SDK. All biometric computation runs in the browser via WebGPU/WASM. Backend receives only zero-knowledge Pedersen commitments + signed JWTs.",
+    "contact": {
+      "name": "VeriFace Edge Support",
+      "email": "support@veriface.io"
+    },
+    "license": {
+      "name": "Proprietary"
+    }
+  },
+  "servers": [
+    { "url": "https://api.veriface.io", "description": "Production" },
+    { "url": "https://staging.api.veriface.io", "description": "Staging" },
+    { "url": "http://localhost:3000", "description": "Local development" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Authorization",
+        "description": "Format: `Bearer vf_live_...` or `Bearer vf_test_...`"
+      }
+    },
+    "schemas": {
+      "Tenant": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "signingPubKey": { "type": "string" },
+          "kmsKeyId": { "type": "string" },
+          "webhookUrl": { "type": "string", "nullable": true },
+          "rateLimitPerMin": { "type": "integer" },
+          "active": { "type": "boolean" }
+        }
+      },
+      "ApiKey": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "scopes": { "type": "string" },
+          "keyPrefix": { "type": "string" },
+          "lastFour": { "type": "string" },
+          "active": { "type": "boolean" },
+          "expiresAt": { "type": "string", "nullable": true },
+          "lastUsedAt": { "type": "string", "nullable": true },
+          "createdAt": { "type": "string" }
+        }
+      },
+      "LivenessReport": {
+        "type": "object",
+        "properties": {
+          "rppg": { "type": "number", "minimum": 0, "maximum": 1 },
+          "rppgHeartRateBpm": { "type": "integer", "nullable": true },
+          "rppgSnr": { "type": "number" },
+          "padTexture": { "type": "number" },
+          "padDepth": { "type": "number" },
+          "padCombined": { "type": "number" },
+          "overall": { "type": "number" }
+        }
+      },
+      "AntiInjectionReport": {
+        "type": "object",
+        "properties": {
+          "passed": { "type": "boolean" },
+          "failureReasons": { "type": "array", "items": { "type": "string" } },
+          "timingStats": { "type": "object" },
+          "replayDetected": { "type": "boolean" },
+          "tamperCheck": { "type": "object" },
+          "attestation": { "type": "object" }
+        }
+      },
+      "AuditEntry": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "eventType": { "type": "string" },
+          "payload": { "type": "object" },
+          "chainIndex": { "type": "integer" },
+          "prevHash": { "type": "string" },
+          "thisHash": { "type": "string" },
+          "actorIp": { "type": "string", "nullable": true },
+          "apiKeyId": { "type": "string", "nullable": true },
+          "createdAt": { "type": "string" }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": false },
+          "error": { "type": "string" },
+          "code": { "type": "string" }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/api/tenant": {
+      "post": {
+        "summary": "Create new enterprise tenant",
+        "description": "Bootstrap endpoint — creates tenant + initial API key. No authentication required.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" }
+                },
+                "required": ["name"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Tenant created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "tenant": { "$ref": "#/components/schemas/Tenant" },
+                    "signingPrivateKey": { "type": "string" },
+                    "apiKey": { "type": "string" },
+                    "apiKeyId": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "Get tenant metadata",
+        "parameters": [
+          { "name": "id", "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Tenant metadata" },
+          "404": { "description": "Not found" }
+        }
+      }
+    },
+    "/api/session/init": {
+      "post": {
+        "summary": "Initialize authentication session",
+        "security": [{ "ApiKeyAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "flow": { "type": "string", "enum": ["enroll", "authenticate"] },
+                  "externalUserId": { "type": "string" }
+                },
+                "required": ["flow"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Session initialized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "sessionId": { "type": "string" },
+                    "challenge": { "type": "string" },
+                    "backendPubKey": { "type": "string" },
+                    "expiresAt": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Rate limited" }
+        }
+      }
+    },
+    "/api/session/verify": {
+      "post": {
+        "summary": "Verify ZK payload + issue token",
+        "security": [{ "ApiKeyAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "sessionId": { "type": "string" },
+                  "jwt": { "type": "string" },
+                  "sdkPubKey": { "type": "string" },
+                  "encryptedEmbedding": { "type": "object" },
+                  "commitment": { "type": "string" },
+                  "commitmentNonce": { "type": "string" },
+                  "liveness": { "$ref": "#/components/schemas/LivenessReport" },
+                  "antiInjection": { "$ref": "#/components/schemas/AntiInjectionReport" },
+                  "externalUserId": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Verification result" },
+          "401": { "description": "Unauthorized" },
+          "403": { "description": "Liveness failed / injection suspected" }
+        }
+      }
+    },
+    "/api/token/verify": {
+      "post": {
+        "summary": "Verify a VeriFace-issued auth token (for relying parties)",
+        "security": [{ "ApiKeyAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token": { "type": "string" }
+                },
+                "required": ["token"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Token verification result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "valid": { "type": "boolean" },
+                    "claims": { "type": "object" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/token/revoke": {
+      "post": {
+        "summary": "Revoke a VeriFace-issued auth token before expiry",
+        "security": [{ "ApiKeyAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token": { "type": "string" },
+                  "reason": { "type": "string" }
+                },
+                "required": ["token"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Token revoked" },
+          "401": { "description": "Invalid token signature" }
+        }
+      }
+    },
+    "/api/audit": {
+      "get": {
+        "summary": "Query hash-chained audit log",
+        "security": [{ "ApiKeyAuth": [] }],
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "default": 0 } },
+          { "name": "eventType", "in": "query", "schema": { "type": "string" } },
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date-time" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Audit entries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "entries": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/AuditEntry" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/audit/export": {
+      "get": {
+        "summary": "Export full audit log as JSON or CSV",
+        "security": [{ "ApiKeyAuth": [] }],
+        "parameters": [
+          { "name": "format", "in": "query", "schema": { "type": "string", "enum": ["json", "csv"], "default": "json" } },
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date-time" } }
+        ],
+        "responses": {
+          "200": { "description": "Audit log export" }
+        }
+      }
+    },
+    "/api/templates/delete": {
+      "post": {
+        "summary": "GDPR Art. 17 — Right to be Forgotten",
+        "description": "Cryptographic erasure: deletes template + schedules KMS DEK destruction.",
+        "security": [{ "ApiKeyAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "externalUserId": { "type": "string" }
+                },
+                "required": ["externalUserId"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Template deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "deleted": { "type": "boolean" },
+                    "revocationReceipt": { "type": "string" },
+                    "backupErasureEta": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/api-keys/create": {
+      "post": {
+        "summary": "Create new API key",
+        "security": [{ "ApiKeyAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "label": { "type": "string" },
+                  "scopes": { "type": "string", "default": "*" },
+                  "environment": { "type": "string", "enum": ["live", "test"] },
+                  "expiresInDays": { "type": "integer" }
+                },
+                "required": ["label"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "API key created (plaintext shown once)" }
+        }
+      }
+    },
+    "/api/api-keys/list": {
+      "get": {
+        "summary": "List all API keys",
+        "security": [{ "ApiKeyAuth": [] }],
+        "responses": {
+          "200": { "description": "API keys (without plaintext)" }
+        }
+      }
+    },
+    "/api/api-keys/revoke": {
+      "post": {
+        "summary": "Revoke an API key",
+        "security": [{ "ApiKeyAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "apiKeyId": { "type": "string" }
+                },
+                "required": ["apiKeyId"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Revoked" }
+        }
+      }
+    },
+    "/api/webauthn/register/begin": {
+      "post": {
+        "summary": "Begin FIDO2/WebAuthn credential registration",
+        "security": [{ "ApiKeyAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "externalUserId": { "type": "string" },
+                  "deviceType": { "type": "string", "enum": ["platform", "roaming"] }
+                },
+                "required": ["externalUserId"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "PublicKeyCredentialCreationOptions" }
+        }
+      }
+    },
+    "/api/webauthn/register/finish": {
+      "post": {
+        "summary": "Complete WebAuthn credential registration",
+        "security": [{ "ApiKeyAuth": [] }],
+        "responses": {
+          "200": { "description": "Credential stored" }
+        }
+      }
+    },
+    "/api/webauthn/auth/begin": {
+      "post": {
+        "summary": "Begin WebAuthn authentication",
+        "security": [{ "ApiKeyAuth": [] }],
+        "responses": {
+          "200": { "description": "PublicKeyCredentialRequestOptions" }
+        }
+      }
+    },
+    "/api/webauthn/auth/finish": {
+      "post": {
+        "summary": "Complete WebAuthn authentication",
+        "security": [{ "ApiKeyAuth": [] }],
+        "responses": {
+          "200": { "description": "Assertion verified" }
+        }
+      }
+    },
+    "/api/health": {
+      "get": {
+        "summary": "Health check",
+        "responses": {
+          "200": { "description": "Service healthy" },
+          "503": { "description": "Service degraded" }
+        }
+      }
+    }
+  }
+}
