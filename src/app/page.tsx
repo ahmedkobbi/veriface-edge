@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { PublicSite } from '@/components/site/PublicSite'
 import { DemoConsole } from '@/components/veriface/DemoConsole'
 import { AdminPanel } from '@/components/admin/AdminPanel'
+import { CustomerPortal } from '@/components/customer/CustomerPortal'
 import { GradientMesh } from '@/components/premium/GradientMesh'
 import { CustomCursor } from '@/components/premium/CustomCursor'
 import { GlassNav } from '@/components/premium/Glass'
@@ -13,8 +14,10 @@ import { CommandIcon } from '@/components/brand/Icons'
 import { RadioIcon } from '@/components/brand/Icons'
 import { useWebSocketStatus } from '@/sdk/use-websocket'
 import { CommandPalette } from '@/components/premium/CommandPalette'
+import { PremiumSpinner } from '@/components/premium/Premium'
+import { AuthPage } from '@/components/auth/AuthPage'
 
-export type AppView = 'public' | 'demo' | 'admin'
+export type AppView = 'public' | 'demo' | 'admin' | 'account'
 
 export default function Home() {
   const [view, setView] = useState<AppView>('public')
@@ -51,7 +54,7 @@ export default function Home() {
 
           {/* View switcher */}
           <div className="hidden md:flex items-center gap-1 rounded-xl backdrop-blur-xl bg-white/[0.03] border border-white/[0.06] p-1">
-            {(['public', 'demo', 'admin'] as AppView[]).map((v) => (
+            {(['public', 'demo', 'admin', 'account'] as AppView[]).map((v) => (
               <button
                 key={v}
                 onClick={() => setView(v)}
@@ -61,7 +64,7 @@ export default function Home() {
                     : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
                 }`}
               >
-                {v === 'public' ? 'Home' : v === 'demo' ? 'Live Demo' : 'Admin'}
+                {v === 'public' ? 'Home' : v === 'demo' ? 'Live Demo' : v === 'admin' ? 'Admin' : 'My Account'}
               </button>
             ))}
           </div>
@@ -94,7 +97,7 @@ export default function Home() {
                   : 'text-slate-400 bg-white/[0.03]'
               }`}
             >
-              {v === 'public' ? 'Home' : v === 'demo' ? 'Demo' : 'Admin'}
+              {v === 'public' ? 'Home' : v === 'demo' ? 'Demo' : v === 'admin' ? 'Admin' : 'Account'}
             </button>
           ))}
         </div>
@@ -111,7 +114,29 @@ export default function Home() {
           </section>
         )}
         {view === 'admin' && <AdminPanel />}
+        {view === 'account' && (
+          <PlatformUserGateway
+            render={(user) => <CustomerPortal tenantId={user.tenantId!} userEmail={user.email} />}
+            onNeedAuth={() => setView('admin')}
+          />
+        )}
       </div>
     </main>
   )
+}
+
+// Gateway: checks session, renders children if authenticated, else shows AuthPage
+function PlatformUserGateway({ render, onNeedAuth }: { render: (user: any) => React.ReactNode; onNeedAuth: () => void }) {
+  const [user, setUser] = useState<any | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetch('/api/auth/me').then(r => r.json()).then(d => {
+      if (d.success && d.user?.tenantId) setUser(d.user)
+    }).catch(() => {}).finally(() => setLoading(false))
+  }, [])
+
+  if (loading) return <div className="flex items-center justify-center py-20"><PremiumSpinner size="xl" variant="pulse" /></div>
+  if (!user) return <AuthPage onSuccess={() => onNeedAuth()} />
+  return <>{render(user)}</>
 }
