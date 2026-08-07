@@ -62,7 +62,7 @@ export default function Home() {
   }, [])
 
   return (
-    <main className="min-h-screen flex flex-col bg-slate-950 text-slate-100 relative">
+    <main className="min-h-screen flex flex-col bg-slate-950 text-slate-100 relative overflow-x-hidden">
       <GradientMesh />
       <CustomCursor />
 
@@ -78,6 +78,7 @@ export default function Home() {
           <div className="flex items-center gap-2">
             <VeriFaceLogoFull size={36} variant="color" />
           </div>
+          {/* Desktop nav */}
           <div className="hidden md:flex items-center gap-2">
             <GlassBadge variant="info"><CpuIcon className="w-3 h-3" /> Edge-AI</GlassBadge>
             <GlassBadge variant="success"><LockIcon className="w-3 h-3" /> ZK Proofs</GlassBadge>
@@ -94,11 +95,24 @@ export default function Home() {
               <kbd className="font-mono">K</kbd>
             </button>
           </div>
+          {/* Mobile nav — minimal, just command palette + WS status */}
+          <div className="flex md:hidden items-center gap-2">
+            <GlassBadge variant={wsStatus === 'connected' ? 'success' : 'default'}>
+              <RadioIcon className={`w-3 h-3 ${wsStatus === 'connected' ? 'animate-pulse' : ''}`} />
+            </GlassBadge>
+            <button
+              onClick={() => setPaletteOpen(true)}
+              className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-white/[0.08] backdrop-blur-md bg-white/[0.03] text-slate-400 hover:bg-white/[0.07] hover:text-slate-200 transition-all"
+              aria-label="Open command palette"
+            >
+              <CommandIcon className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </GlassNav>
 
       {/* Hero with GSAP */}
-      <section className="border-b border-white/[0.04] py-20 relative">
+      <section className="border-b border-white/[0.04] py-12 md:py-20 relative">
         <div className="container mx-auto px-4">
           <GsapHero
             title="Face authentication that"

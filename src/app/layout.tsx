@@ -114,6 +114,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 5,
+  viewportFit: "cover",  // iOS safe area support
   colorScheme: "dark",
 };
 
