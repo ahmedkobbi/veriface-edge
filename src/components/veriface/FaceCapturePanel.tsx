@@ -8,9 +8,10 @@
  */
 
 import { useEffect, useRef } from 'react'
-import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import type { DetectedFace } from '@/sdk/ai-pipeline'
+import { GlassSurface, GlassBadge } from '@/components/premium/Glass'
+import { PremiumSpinner, PremiumProgress } from '@/components/premium/Premium'
 
 interface FaceCapturePanelProps {
   videoRef: React.RefObject<HTMLVideoElement | null>
@@ -77,7 +78,7 @@ export function FaceCapturePanel({
   }, [face])
 
   return (
-    <Card className="relative overflow-hidden p-0 aspect-video bg-slate-950 border-slate-800">
+    <GlassSurface blur="2xl" opacity="heavy" className="relative overflow-hidden aspect-video rounded-2xl">
       <video
         ref={videoRef}
         autoPlay
@@ -92,51 +93,59 @@ export function FaceCapturePanel({
         className="absolute inset-0 w-full h-full -scale-x-100 pointer-events-none"
       />
 
-      {/* Top-left status badge */}
-      <div className="absolute top-3 left-3 flex flex-col gap-2">
-        <Badge variant={status === 'capturing' ? 'default' : 'secondary'}
-          className={status === 'capturing'
-            ? 'bg-emerald-600 text-white'
-            : status === 'failed'
-            ? 'bg-red-600 text-white'
-            : ''
-          }
-        >
-          {status === 'capturing' ? '● LIVE CAPTURE' : status.toUpperCase()}
-        </Badge>
-        {face ? (
-          <Badge variant="outline" className="bg-slate-900/80 text-emerald-300 border-emerald-700">
-            Face: {(face.detectionConfidence * 100).toFixed(0)}%
-          </Badge>
-        ) : status === 'capturing' ? (
-          <Badge variant="outline" className="bg-slate-900/80 text-amber-300 border-amber-700">
-            Searching for face…
-          </Badge>
-        ) : null}
-      </div>
-
-      {/* rPPG progress bar */}
-      {status === 'capturing' && (
-        <div className="absolute bottom-3 left-3 right-3">
-          <div className="flex justify-between text-xs text-slate-300 mb-1">
-            <span>rPPG Sample Buffer</span>
-            <span>{Math.floor(rppgProgress * 72)}/72 frames</span>
-          </div>
-          <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-emerald-500 to-cyan-400 transition-all duration-150"
-              style={{ width: `${Math.min(100, rppgProgress * 100)}%` }}
-            />
+      {/* Idle spinner overlay */}
+      {status === 'idle' && (
+        <div className="absolute inset-0 flex items-center justify-center bg-slate-950/50">
+          <div className="flex flex-col items-center gap-3">
+            <PremiumSpinner size="xl" variant="pulse" />
+            <span className="text-xs text-slate-400">Awaiting capture</span>
           </div>
         </div>
       )}
 
-      {/* Sub-perceptible strobe indicator (UI debug only — actual strobe is invisible) */}
+      {/* Top-left status badge */}
+      <div className="absolute top-3 left-3 flex flex-col gap-2">
+        <GlassBadge variant={
+          status === 'capturing' ? 'success' :
+          status === 'failed' ? 'error' :
+          status === 'success' ? 'success' :
+          'default'
+        }>
+          {status === 'capturing' && <PremiumSpinner size="xs" variant="dots" />}
+          {status === 'capturing' ? 'LIVE CAPTURE' : status.toUpperCase()}
+        </GlassBadge>
+        {face ? (
+          <GlassBadge variant="success">
+            Face: {(face.detectionConfidence * 100).toFixed(0)}%
+          </GlassBadge>
+        ) : status === 'capturing' ? (
+          <GlassBadge variant="warning">
+            Searching for face…
+          </GlassBadge>
+        ) : null}
+      </div>
+
+      {/* rPPG progress bar — premium version */}
+      {status === 'capturing' && (
+        <div className="absolute bottom-3 left-3 right-3">
+          <div className="flex justify-between text-xs text-slate-300 mb-1.5">
+            <span className="font-medium">rPPG Sample Buffer</span>
+            <span className="font-mono text-emerald-300">{Math.floor(rppgProgress * 72)}/72 frames</span>
+          </div>
+          <PremiumProgress
+            value={rppgProgress * 100}
+            size="sm"
+            variant="glow"
+          />
+        </div>
+      )}
+
+      {/* Sub-perceptible strobe indicator */}
       {strobeActive && status === 'capturing' && (
         <div className="absolute top-3 right-3">
           <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
         </div>
       )}
-    </Card>
+    </GlassSurface>
   )
 }

@@ -25,6 +25,14 @@ import { FaceCapturePanel } from './FaceCapturePanel'
 import { LivenessPanel } from './LivenessPanel'
 import { AntiInjectionPanel } from './AntiInjectionPanel'
 import { AuditLogPanel } from './AuditLogPanel'
+import { GlassSurface, GlassBadge, GlassInput } from '@/components/premium/Glass'
+import {
+  PremiumButton,
+  PremiumSpinner,
+  PremiumAlert,
+  PremiumToastContainer,
+  usePremiumToast,
+} from '@/components/premium/Premium'
 import {
   ShieldCheck,
   Fingerprint,
@@ -59,6 +67,7 @@ export function DemoConsole() {
   const [authResult, setAuthResult] = useState<any | null>(null)
   const [deleteResult, setDeleteResult] = useState<any | null>(null)
   const [busy, setBusy] = useState(false)
+  const { toasts, dismissToast, toast } = usePremiumToast()
 
   // Use the React hook
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -145,10 +154,16 @@ export function DemoConsole() {
     setBusy(true)
     setEnrollResult(null)
     setAuthResult(null)
+    toast.info('Starting enrollment', 'Capturing biometric template...')
     try {
       const res = await enroll(externalUserId)
       setEnrollResult(res)
       setRefreshKey((k) => k + 1)
+      if (res.success) {
+        toast.success('Enrollment successful', `Template committed for ${externalUserId}`)
+      } else {
+        toast.error('Enrollment failed', res.errorMessage ?? res.errorCode)
+      }
     } finally {
       setBusy(false)
     }
@@ -158,10 +173,16 @@ export function DemoConsole() {
     if (!externalUserId || !tenantId) return
     setBusy(true)
     setAuthResult(null)
+    toast.info('Starting authentication', 'Verifying biometric template...')
     try {
       const res = await authenticate(externalUserId)
       setAuthResult(res)
       setRefreshKey((k) => k + 1)
+      if (res.success) {
+        toast.success('Authentication successful', `Liveness: ${(res.liveness?.overall * 100).toFixed(0)}%`)
+      } else {
+        toast.error('Authentication failed', res.errorMessage ?? res.errorCode)
+      }
     } finally {
       setBusy(false)
     }
@@ -201,23 +222,20 @@ export function DemoConsole() {
 
   return (
     <div className="space-y-6">
+      <PremiumToastContainer toasts={toasts} onDismiss={dismissToast} />
       {/* Tenant Setup Card */}
-      <Card className="bg-slate-900/50 border-slate-800">
-        <CardHeader>
-          <CardTitle className="text-base font-medium text-slate-200 flex items-center justify-between">
+      <GlassSurface blur="xl" opacity="medium" className="rounded-2xl">
+        <div className="p-5">
+          <div className="text-base font-medium text-slate-200 flex items-center justify-between mb-4">
             <span className="flex items-center gap-2">
               <KeyRound className="w-4 h-4 text-emerald-400" />
               Tenant Provisioning
             </span>
             <div className="flex items-center gap-2">
               {tenantId ? (
-                <Badge variant="outline" className="bg-emerald-950/30 text-emerald-300 border-emerald-800">
-                  ACTIVE
-                </Badge>
+                <GlassBadge variant="success">ACTIVE</GlassBadge>
               ) : (
-                <Badge variant="outline" className="bg-amber-950/30 text-amber-300 border-amber-800">
-                  CREATING…
-                </Badge>
+                <GlassBadge variant="warning">CREATING…</GlassBadge>
               )}
               <Button
                 size="sm"
@@ -229,9 +247,8 @@ export function DemoConsole() {
                 Reset
               </Button>
             </div>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
+          </div>
+        <div className="space-y-3">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
             <div>
               <Label className="text-slate-400 mb-1 block">Tenant ID</Label>
@@ -278,8 +295,9 @@ export function DemoConsole() {
             KMS key, webhook secret, and Ed25519 signing keypair. Templates are
             encrypted client-side before reaching the backend.
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
+      </GlassSurface>
 
       {/* Main Demo Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -307,30 +325,24 @@ export function DemoConsole() {
                   />
                 </div>
                 <div className="flex gap-2 items-end">
-                  <Button
+                  <PremiumButton
                     onClick={handleEnroll}
                     disabled={busy || !tenantId || !externalUserId || status === 'capturing'}
-                    className="bg-cyan-600 hover:bg-cyan-700 text-white"
+                    loading={busy && status === 'capturing'}
+                    variant="secondary"
+                    icon={!busy && <UserPlus className="w-4 h-4" />}
                   >
-                    {busy && status === 'capturing' ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <UserPlus className="w-4 h-4 mr-2" />
-                    )}
                     Enroll
-                  </Button>
-                  <Button
+                  </PremiumButton>
+                  <PremiumButton
                     onClick={handleAuthenticate}
                     disabled={busy || !tenantId || !externalUserId || status === 'capturing'}
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                    loading={busy && status === 'capturing'}
+                    variant="primary"
+                    icon={!busy && <LogIn className="w-4 h-4" />}
                   >
-                    {busy && status === 'capturing' ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <LogIn className="w-4 h-4 mr-2" />
-                    )}
                     Authenticate
-                  </Button>
+                  </PremiumButton>
                   {status === 'capturing' && (
                     <Button
                       onClick={cancel}
