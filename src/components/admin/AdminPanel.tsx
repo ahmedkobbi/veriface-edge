@@ -12,8 +12,9 @@ import { AuthPage } from '@/components/auth/AuthPage'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { FraudScoreModule, AccessPoliciesModule, WebhookDeliveryModule, BrandingModule, EmbedCodeModule, StatusPage } from '@/components/admin/AdvancedModules'
 import { SamlConfigModule } from '@/components/admin/SamlConfigModule'
+import { AuditStreamModule, MultiRegionModule } from '@/components/admin/StreamRegionModules'
 
-type AdminTab = 'dashboard' | 'usage' | 'security' | 'templates' | 'analytics' | 'team' | 'integrations' | 'compliance' | 'developer' | 'settings' | 'fraud' | 'policies' | 'webhooks' | 'branding' | 'embed' | 'status'
+type AdminTab = 'dashboard' | 'usage' | 'security' | 'templates' | 'analytics' | 'team' | 'integrations' | 'compliance' | 'developer' | 'settings' | 'fraud' | 'policies' | 'webhooks' | 'branding' | 'embed' | 'status' | 'audit-stream' | 'regions'
 
 interface PlatformUser {
   id: string; email: string; name: string | null; role: string
@@ -58,6 +59,8 @@ export function AdminPanel() {
     { id: 'branding', label: 'Branding', icon: <CpuIcon className="w-3.5 h-3.5" /> },
     { id: 'embed', label: 'Embed Code', icon: <CopyIcon className="w-3.5 h-3.5" /> },
     { id: 'status', label: 'Status', icon: <ActivityIcon className="w-3.5 h-3.5" /> },
+    { id: 'audit-stream', label: 'Live Audit', icon: <RadioIcon className="w-3.5 h-3.5" /> },
+    { id: 'regions', label: 'Multi-Region', icon: <CpuIcon className="w-3.5 h-3.5" /> },
   ]
 
   return (
@@ -99,6 +102,8 @@ export function AdminPanel() {
       {tab === 'branding' && <BrandingModule tenantId={user.tenantId} userRole={user.role} />}
       {tab === 'embed' && <EmbedCodeModule tenantId={user.tenantId} />}
       {tab === 'status' && <StatusPage />}
+      {tab === 'audit-stream' && <AuditStreamModule tenantId={user.tenantId} />}
+      {tab === 'regions' && <MultiRegionModule tenantId={user.tenantId} userRole={user.role} />}
     </div>
   )
 }

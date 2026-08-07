@@ -15,6 +15,7 @@
 
 import { db } from '@/lib/db'
 import { sha256Hex, utf8 } from '@/lib/crypto-server'
+import { broadcastAuditEntry } from '@/lib/audit-stream'
 
 export type AuditEventType =
   | 'session.init'
@@ -104,6 +105,17 @@ export async function appendAudit(event: AuditEvent): Promise<{
         await tx.auditLog.update({
           where: { id: entry.id },
           data: { thisHash },
+        })
+
+        // Broadcast to SSE/WS subscribers (real-time SIEM streaming)
+        broadcastAuditEntry({
+          tenantId: event.tenantId,
+          eventType: event.eventType,
+          payload: event.payload,
+          chainIndex,
+          thisHash,
+          actorIp: event.actorIp,
+          createdAt: entry.createdAt,
         })
 
         return { id: entry.id, chainIndex, thisHash }
