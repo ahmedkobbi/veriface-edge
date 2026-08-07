@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { requireApiKey } from '@/lib/auth'
+import { safeErrorResponse } from '@/lib/config'
 
 const MAX_EXPORT_ENTRIES = 10_000
 
@@ -63,21 +64,31 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    // CSV format
+    // CSV format — with formula injection protection (CWE-1236)
+    const escapeCsvCell = (value: string): string => {
+      // Escape double quotes
+      let escaped = value.replace(/"/g, '""')
+      // Prevent CSV formula injection: prefix dangerous chars with single quote
+      if (/^[=+\-@\t\r]/.test(escaped)) {
+        escaped = "'" + escaped
+      }
+      return `"${escaped}"`
+    }
+
     const csvRows: string[] = [
       'chainIndex,eventType,createdAt,actorIp,apiKeyId,prevHash,thisHash,payload',
     ]
     for (const e of entries) {
-      const payload = JSON.stringify(JSON.parse(e.payload)).replace(/"/g, '""')
+      const payload = JSON.stringify(JSON.parse(e.payload))
       csvRows.push([
         e.chainIndex,
-        `"${e.eventType}"`,
-        e.createdAt.toISOString(),
-        `"${e.actorIp ?? ''}"`,
-        `"${e.apiKeyId ?? ''}"`,
+        escapeCsvCell(e.eventType),
+        escapeCsvCell(e.createdAt.toISOString()),
+        escapeCsvCell(e.actorIp ?? ''),
+        escapeCsvCell(e.apiKeyId ?? ''),
         e.prevHash,
         e.thisHash,
-        `"${payload}"`,
+        escapeCsvCell(payload),
       ].join(','))
     }
 
@@ -89,7 +100,7 @@ export async function GET(req: NextRequest) {
     })
   } catch (e) {
     return NextResponse.json(
-      { success: false, error: e instanceof Error ? e.message : 'Unknown error' },
+      safeErrorResponse(e),
       { status: 500 },
     )
   }

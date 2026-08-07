@@ -83,7 +83,7 @@ export async function createApiKey(
 
   await appendAudit({
     tenantId,
-    eventType: 'api_key.created' as any,
+    eventType: 'api_key.created',
     payload: { apiKeyId: record.id, label: opts.label, scopes: opts.scopes ?? '*' },
   })
 
@@ -114,7 +114,7 @@ export async function revokeApiKey(tenantId: string, apiKeyId: string): Promise<
   if (result.count > 0) {
     await appendAudit({
       tenantId,
-      eventType: 'api_key.revoked' as any,
+      eventType: 'api_key.revoked',
       payload: { apiKeyId },
     })
   }

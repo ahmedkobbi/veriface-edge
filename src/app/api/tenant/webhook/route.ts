@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
 
   await appendAudit({
     tenantId,
-    eventType: 'key.rotated',
+    eventType: webhookSecret === 'rotate' ? 'webhook.secret_rotated' : 'webhook.url_updated',
     payload: {
       webhookUrlSet: webhookUrl !== undefined,
       webhookSecretRotated: webhookSecret === 'rotate',

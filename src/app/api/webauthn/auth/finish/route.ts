@@ -11,6 +11,7 @@ import { appendAudit } from '@/lib/audit'
 import { finishWebAuthnAuthentication } from '@/lib/webauthn'
 import { validateInput, WebAuthnAuthFinishSchema } from '@/lib/validation'
 import { logger } from '@/lib/logger'
+import { safeErrorResponse } from '@/lib/config'
 
 export async function POST(req: NextRequest) {
   const authResult = await requireApiKey(req, 'session:init')
@@ -97,7 +98,7 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     logger.error({ error: e, sessionId }, 'WebAuthn auth finish failed')
     return NextResponse.json(
-      { success: false, error: e instanceof Error ? e.message : 'Unknown error' },
+      safeErrorResponse(e),
       { status: 500 },
     )
   }

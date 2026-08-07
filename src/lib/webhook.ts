@@ -220,8 +220,7 @@ export async function processWebhookQueue(maxToProcess: number = 10): Promise<{
         },
         body: wh.payload,
         signal: AbortSignal.timeout(10_000),
-        // @ts-ignore — redirect: 'manual' prevents SSRF via redirect
-        redirect: 'manual',
+        redirect: 'manual' as RequestRedirect,  // Prevents SSRF via redirect
       })
       httpCode = response.status
       const duration = (Date.now() - deliveryStart) / 1000

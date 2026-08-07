@@ -34,6 +34,7 @@ const authCodes = new Map<string, {
   redirectUri: string
   externalUserId: string
   nonce?: string
+  sessionId?: string
   expiresAt: number
 }>()
 
@@ -161,8 +162,10 @@ export async function POST(req: NextRequest) {
       }, { status: 403 })
     }
 
-    // Mark code as used (consume it)
-    authCodes.delete(code)
+    // Associate the session ID with the auth code (for /oauth/token to look up)
+    // Do NOT consume the code here — /oauth/token consumes it after exchanging.
+    codeEntry.sessionId = session_id
+    authCodes.set(code, codeEntry)
 
     return NextResponse.json({
       success: true,

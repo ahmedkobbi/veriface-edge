@@ -52,7 +52,6 @@ const LIVENESS_THRESHOLD = 0.55  // demo threshold — production default is 0.7
 export function DemoConsole() {
   // Tenant state
   const [tenantId, setTenantId] = useState<string | null>(null)
-  const [signingKey, setSigningKey] = useState<string | null>(null)
   const [apiKey, setApiKey] = useState<string | null>(null)
   const [externalUserId, setExternalUserId] = useState('demo-user-001')
   const [refreshKey, setRefreshKey] = useState(0)
@@ -102,7 +101,6 @@ export function DemoConsole() {
       try {
         const parsed = JSON.parse(stored)
         setTenantId(parsed.tenantId)
-        setSigningKey(parsed.signingPrivateKey)
         setApiKey(parsed.apiKey)
         return
       } catch {}
@@ -121,14 +119,12 @@ export function DemoConsole() {
       const data = await res.json()
       if (data.success) {
         const tenantId = data.tenant.id
-        const { signingPrivateKey, apiKey: newApiKey } = data
+        const { apiKey: newApiKey } = data
         localStorage.setItem(DEMO_TENANT_KEY, JSON.stringify({
           tenantId,
-          signingPrivateKey,
           apiKey: newApiKey,
         }))
         setTenantId(tenantId)
-        setSigningKey(signingPrivateKey)
         setApiKey(newApiKey)
       }
     } catch (e) {
@@ -141,7 +137,6 @@ export function DemoConsole() {
   const resetTenant = async () => {
     localStorage.removeItem(DEMO_TENANT_KEY)
     setTenantId(null)
-    setSigningKey(null)
     setApiKey(null)
     setEnrollResult(null)
     setAuthResult(null)
@@ -258,19 +253,6 @@ export function DemoConsole() {
                 </code>
                 {tenantId && (
                   <Button size="sm" variant="ghost" onClick={() => copyToClipboard(tenantId)} className="h-7 w-7 p-0">
-                    <Copy className="w-3 h-3" />
-                  </Button>
-                )}
-              </div>
-            </div>
-            <div>
-              <Label className="text-slate-400 mb-1 block">Ed25519 Signing Private Key</Label>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 px-2 py-1.5 bg-slate-950 rounded font-mono text-slate-500 text-[10px] truncate">
-                  {signingKey ? signingKey.slice(0, 24) + '…' : '—'}
-                </code>
-                {signingKey && (
-                  <Button size="sm" variant="ghost" onClick={() => copyToClipboard(signingKey)} className="h-7 w-7 p-0">
                     <Copy className="w-3 h-3" />
                   </Button>
                 )}

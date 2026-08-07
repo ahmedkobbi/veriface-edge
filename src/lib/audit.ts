@@ -29,6 +29,8 @@ export type AuditEventType =
   | 'tenant.deactivated'
   | 'webhook.delivered'
   | 'webhook.dead_lettered'
+  | 'webhook.url_updated'
+  | 'webhook.secret_rotated'
   | 'injection.suspected'
   | 'api_key.created'
   | 'api_key.revoked'
@@ -40,6 +42,10 @@ export type AuditEventType =
   | 'rate_limit.exceeded'
   | 'session.expired'
   | 'session.cleanup'
+  | 'consent.recorded'
+  | 'consent.withdrawn'
+  | 'data.exported'
+  | 'data.retention_cleanup'
 
 export interface AuditEvent {
   tenantId: string

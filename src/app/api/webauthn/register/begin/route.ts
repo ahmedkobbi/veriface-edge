@@ -11,6 +11,7 @@ import { secureRandomHex } from '@/lib/crypto-server'
 import { beginWebAuthnRegistration } from '@/lib/webauthn'
 import { validateInput, WebAuthnRegisterBeginSchema } from '@/lib/validation'
 import { logger } from '@/lib/logger'
+import { safeErrorResponse } from '@/lib/config'
 
 export async function POST(req: NextRequest) {
   const authResult = await requireApiKey(req, 'session:init')
@@ -54,7 +55,7 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     logger.error({ error: e, tenantId: authResult.auth.tenantId }, 'WebAuthn registration begin failed')
     return NextResponse.json(
-      { success: false, error: e instanceof Error ? e.message : 'Unknown error' },
+      safeErrorResponse(e),
       { status: 500 },
     )
   }

@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { requireApiKey, listApiKeys } from '@/lib/auth'
+import { safeErrorResponse } from '@/lib/config'
 
 export async function GET(req: NextRequest) {
   const authResult = await requireApiKey(req, 'tenant:admin')
@@ -15,7 +16,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ success: true, apiKeys: keys })
   } catch (e) {
     return NextResponse.json(
-      { success: false, error: e instanceof Error ? e.message : 'Unknown error' },
+      safeErrorResponse(e),
       { status: 500 },
     )
   }

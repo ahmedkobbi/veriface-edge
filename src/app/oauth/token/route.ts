@@ -66,24 +66,64 @@ export async function POST(req: NextRequest) {
       }, { status: 400 })
     }
 
-    // Look up the session that was associated with this code
-    const session = await db.session.findFirst({
-      where: { tenantId: clientId, state: 'success' },
-      orderBy: { updatedAt: 'desc' },
-    })
+    // C3 FIX: Look up the authorization code from the authCodes map
+    // (exported by /oauth/authorize). Verify it belongs to the client,
+    // matches the redirect_uri, hasn't expired, then consume it (delete).
+    const { authCodes } = await import('@/app/oauth/authorize/route')
+    const codeEntry = authCodes.get(code)
 
-    if (!session) {
+    if (!codeEntry) {
       return NextResponse.json({
         error: 'invalid_grant',
-        error_description: 'No successful session found for this client',
+        error_description: 'Authorization code not found or already consumed',
       }, { status: 400 })
     }
 
-    // Verify the session is recent (within 10 min)
-    if (Date.now() - session.updatedAt.getTime() > 10 * 60 * 1000) {
+    // Check code expiry (10 min)
+    if (Date.now() > codeEntry.expiresAt) {
+      authCodes.delete(code)
       return NextResponse.json({
         error: 'invalid_grant',
-        error_description: 'Session too old',
+        error_description: 'Authorization code expired',
+      }, { status: 400 })
+    }
+
+    // Verify client_id matches
+    if (codeEntry.clientId !== clientId) {
+      return NextResponse.json({
+        error: 'invalid_grant',
+        error_description: 'client_id does not match authorization code',
+      }, { status: 400 })
+    }
+
+    // Verify redirect_uri matches
+    if (redirectUri && codeEntry.redirectUri !== redirectUri) {
+      return NextResponse.json({
+        error: 'invalid_grant',
+        error_description: 'redirect_uri does not match authorization code',
+      }, { status: 400 })
+    }
+
+    // Consume the code (one-time use)
+    authCodes.delete(code)
+
+    // Look up the session by the code entry's sessionId
+    const session = await db.session.findUnique({
+      where: { id: codeEntry.sessionId ?? '' },
+    })
+
+    if (!session || session.state !== 'success') {
+      return NextResponse.json({
+        error: 'invalid_grant',
+        error_description: 'Session not found or not successful',
+      }, { status: 400 })
+    }
+
+    // Verify the session belongs to the claimed tenant
+    if (session.tenantId !== clientId) {
+      return NextResponse.json({
+        error: 'invalid_grant',
+        error_description: 'Session does not belong to this client',
       }, { status: 400 })
     }
 

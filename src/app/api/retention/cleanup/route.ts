@@ -19,6 +19,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { logger } from '@/lib/logger'
+import { safeErrorResponse } from '@/lib/config'
 
 const RETENTION = {
   AUDIT_LOG_DAYS: 2555,        // 7 years (SOX/financial)
@@ -95,7 +96,7 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     logger.error({ error: e }, 'Data retention cleanup failed')
     return NextResponse.json(
-      { success: false, error: e instanceof Error ? e.message : 'Unknown error' },
+      safeErrorResponse(e),
       { status: 500 },
     )
   }

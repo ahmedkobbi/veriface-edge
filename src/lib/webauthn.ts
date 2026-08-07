@@ -25,6 +25,16 @@ const RP_NAME = 'VeriFace Edge'
 const RP_ID = process.env.WEBAUTHN_RP_ID ?? 'localhost'
 const RP_ORIGIN = process.env.WEBAUTHN_RP_ORIGIN ?? 'http://localhost:3000'
 
+// H12: In production, refuse to use localhost defaults
+if (process.env.NODE_ENV === 'production') {
+  if (RP_ID === 'localhost' || !process.env.WEBAUTHN_RP_ID) {
+    throw new Error('WEBAUTHN_RP_ID must be set to your domain in production (e.g., veriface.io)')
+  }
+  if (!process.env.WEBAUTHN_RP_ORIGIN || !process.env.WEBAUTHN_RP_ORIGIN.startsWith('https://')) {
+    throw new Error('WEBAUTHN_RP_ORIGIN must be an HTTPS URL in production (e.g., https://veriface.io)')
+  }
+}
+
 /**
  * Generate WebAuthn registration options for a user.
  */

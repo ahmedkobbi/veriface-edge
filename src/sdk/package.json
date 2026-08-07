@@ -63,11 +63,13 @@
   },
   "peerDependencies": {
     "react": ">=18",
-    "vue": ">=3"
+    "vue": ">=3",
+    "socket.io-client": "^4.8.3"
   },
   "peerDependenciesMeta": {
     "react": { "optional": true },
-    "vue": { "optional": true }
+    "vue": { "optional": true },
+    "socket.io-client": { "optional": true }
   },
   "devDependencies": {
     "tsup": "^8.0.0",

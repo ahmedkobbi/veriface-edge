@@ -10,6 +10,7 @@ import { revokeTemplate } from '@/lib/tenant'
 import { appendAudit } from '@/lib/audit'
 import { enqueueWebhook } from '@/lib/webhook'
 import { requireApiKey } from '@/lib/auth'
+import { safeErrorResponse } from '@/lib/config'
 
 export async function POST(req: NextRequest) {
   const authResult = await requireApiKey(req, 'tenant:admin')
@@ -49,7 +50,7 @@ export async function POST(req: NextRequest) {
     })
   } catch (e) {
     return NextResponse.json(
-      { success: false, error: e instanceof Error ? e.message : 'Unknown error' },
+      safeErrorResponse(e),
       { status: 500 },
     )
   }

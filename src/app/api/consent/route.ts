@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
 
   await appendAudit({
     tenantId,
-    eventType: 'consent.recorded' as any,
+    eventType: 'consent.recorded',
     payload: { userId: user.id, purpose, granted, consentId: consent.id },
     apiKeyId: authResult.auth.apiKeyId,
   })

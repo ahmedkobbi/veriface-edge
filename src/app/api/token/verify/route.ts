@@ -19,6 +19,7 @@ import { requireApiKey } from '@/lib/auth'
 import { appendAudit } from '@/lib/audit'
 import { ed25519Verify, utf8, type Ed25519KeyPair } from '@/lib/crypto-server'
 import { ed25519Generate } from '@/lib/crypto-server'
+import { safeErrorResponse } from '@/lib/config'
 
 // Reuse the server's signing keypair (singleton from session/verify route).
 // In production: this would be loaded from KMS.
@@ -118,7 +119,7 @@ export async function POST(req: NextRequest) {
     })
   } catch (e) {
     return NextResponse.json(
-      { success: false, error: e instanceof Error ? e.message : 'Unknown error' },
+      safeErrorResponse(e),
       { status: 500 },
     )
   }

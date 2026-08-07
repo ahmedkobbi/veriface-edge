@@ -19,6 +19,7 @@ import { db } from '@/lib/db'
 import { requireApiKey } from '@/lib/auth'
 import { appendAudit } from '@/lib/audit'
 import { ed25519Verify, utf8, type Ed25519KeyPair, ed25519Generate } from '@/lib/crypto-server'
+import { safeErrorResponse } from '@/lib/config'
 
 
 function base64urlDecode(s: string): Uint8Array {
@@ -95,7 +96,7 @@ export async function POST(req: NextRequest) {
     })
   } catch (e) {
     return NextResponse.json(
-      { success: false, error: e instanceof Error ? e.message : 'Unknown error' },
+      safeErrorResponse(e),
       { status: 500 },
     )
   }

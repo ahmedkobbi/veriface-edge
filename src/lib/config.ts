@@ -15,6 +15,19 @@
 
 import { ed25519Generate, type Ed25519KeyPair, hex } from '@/lib/crypto-server'
 import { ed25519 } from '@noble/curves/ed25519.js'
+import { randomBytes } from '@noble/hashes/utils.js'
+import { logger } from '@/lib/logger'
+
+// M15: Refuse to boot in production with SQLite
+if (process.env.NODE_ENV === 'production') {
+  const dbUrl = process.env.DATABASE_URL ?? ''
+  if (dbUrl.startsWith('file:') || dbUrl === '') {
+    throw new Error(
+      'SQLite (file: URL) is not supported in production. Set DATABASE_URL to a PostgreSQL connection string. ' +
+      'Example: postgresql://user:pass@host:5432/veriface?schema=public'
+    )
+  }
+}
 
 let serverKeyPair: Ed25519KeyPair | null = null
 
@@ -57,7 +70,7 @@ export function getServerSigningKey(): Ed25519KeyPair {
     )
   }
 
-  console.warn(
+  logger.warn(
     '[VeriFace] ⚠️  WARNING: VERIFACE_SERVER_SIGNING_KEY not set — using ephemeral key. ' +
     'Tokens will not survive server restart. Set VERIFACE_ALLOW_INSECURE_DEV=0 and provide a real key.'
   )
@@ -81,8 +94,8 @@ export function getMasterEncryptionKey(): Uint8Array {
     throw new Error('VERIFACE_ENCRYPTION_KEY environment variable is required in production')
   }
 
-  console.warn('[VeriFace] WARNING: VERIFACE_ENCRYPTION_KEY not set — using ephemeral key')
-  return new Uint8Array(32)  // zeros for dev (not secure, but allows startup)
+  logger.warn('VERIFACE_ENCRYPTION_KEY not set — using random ephemeral key (dev only)')
+  return randomBytes(32)
 }
 
 /**

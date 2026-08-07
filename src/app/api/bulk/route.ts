@@ -29,6 +29,7 @@ import { revokeTemplate } from '@/lib/tenant'
 import { appendAudit } from '@/lib/audit'
 import { logger } from '@/lib/logger'
 import { z } from 'zod'
+import { safeErrorResponse } from '@/lib/config'
 
 const BulkOperationSchema = z.object({
   type: z.enum(['delete_template', 'consent']),
@@ -87,7 +88,7 @@ export async function POST(req: NextRequest) {
         data = { recorded: true, purpose: op.purpose, granted: op.granted }
         await appendAudit({
           tenantId,
-          eventType: 'consent.recorded' as any,
+          eventType: 'consent.recorded',
           payload: { externalUserId: op.externalUserId, purpose: op.purpose, granted: op.granted, bulk: true },
           apiKeyId: authResult.auth.apiKeyId,
         })
@@ -99,7 +100,7 @@ export async function POST(req: NextRequest) {
       results.push({
         index: i,
         success: false,
-        error: e instanceof Error ? e.message : 'Unknown error',
+        error: safeErrorResponse(e).error,
       })
       failed++
 

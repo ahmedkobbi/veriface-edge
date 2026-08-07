@@ -36,6 +36,7 @@ import { validateInput, SessionVerifySchema } from '@/lib/validation'
 import { extractIdempotencyKey, getIdempotentResponse, cacheIdempotentResponse } from '@/lib/idempotency'
 import { logger } from '@/lib/logger'
 import { authAttemptsTotal, enrollmentsTotal, cryptoOperationDurationSeconds, injectionSuspectedTotal } from '@/lib/metrics'
+import { safeErrorResponse } from '@/lib/config'
 
 interface VerifyPayload {
   sessionId: string
@@ -349,7 +350,7 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     logger.error({ error: e, tenantId }, 'Session verification failed')
     return NextResponse.json(
-      { success: false, error: e instanceof Error ? e.message : 'Unknown error' },
+      safeErrorResponse(e),
       { status: 500 },
     )
   }

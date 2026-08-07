@@ -42,7 +42,17 @@ const SECURITY_HEADERS: Record<string, string> = {
   ].join('; '),
 }
 
-const ALLOWED_ORIGINS = (process.env.VERIFACE_ALLOWED_ORIGINS ?? '*').split(',').map((s) => s.trim())
+// CORS: in production, REQUIRE explicit origin allowlist
+const ALLOWED_ORIGINS = (() => {
+  const raw = process.env.VERIFACE_ALLOWED_ORIGINS
+  if (!raw) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('VERIFACE_ALLOWED_ORIGINS must be set in production (comma-separated list of allowed origins)')
+    }
+    return ['*']
+  }
+  return raw.split(',').map((s) => s.trim())
+})()
 
 // API version support
 const CURRENT_API_VERSION = 'v1'
@@ -84,13 +94,8 @@ export function middleware(req: NextRequest) {
   const pathname = req.nextUrl.pathname
   if (pathname.startsWith('/api/')) {
     response.headers.set('API-Version', CURRENT_API_VERSION)
-    response.headers.set('Sunset', 'Sat, 01 Jan 2028 00:00:00 GMT')  // Far future
-    // Check if using a sunset version
-    const versionMatch = pathname.match(/^\/api\/(v\d+)\//)
-    if (versionMatch && SUNSET_VERSIONS.includes(versionMatch[1])) {
-      response.headers.set('Deprecation', 'true')
-      response.headers.set('Link', '</api/v1/>; rel="successor-version"')
-    }
+    // Only set Sunset on routes that are actually being deprecated (none currently)
+    // response.headers.set('Sunset', 'Sat, 01 Jan 2028 00:00:00 GMT')
   }
 
   // CORS

@@ -302,7 +302,7 @@ export async function revokeTemplate(
   // Even if a backup of the encrypted blob exists, it becomes unrecoverable.
   // Here: we record the revocation in the audit log.
   const receipt = sha256Hex(
-    tenantId + '|' + externalUserId + '|' + user.revocationToken + '|' + Date.now(),
+    tenantId + '|' + externalUserId + '|' + user.revocationToken,
   )
 
   return { deleted: true, revocationReceipt: receipt }

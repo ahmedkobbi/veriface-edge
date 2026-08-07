@@ -17,6 +17,7 @@
 
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { safeErrorResponse } from '@/lib/config'
 
 const startedAt = Date.now()
 
@@ -37,7 +38,7 @@ async function checkDatabase(): Promise<HealthCheck> {
       name: 'database',
       status: 'down',
       latencyMs: Date.now() - start,
-      detail: e instanceof Error ? e.message : 'Unknown error',
+      detail: 'Check failed'
     }
   }
 }

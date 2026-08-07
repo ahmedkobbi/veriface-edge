@@ -21,6 +21,7 @@ import { db } from '@/lib/db'
 import { requireApiKey } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 import { appendAudit } from '@/lib/audit'
+import { safeErrorResponse } from '@/lib/config'
 
 export async function GET(req: NextRequest) {
   const authResult = await requireApiKey(req, 'audit:read')
@@ -129,7 +130,7 @@ export async function GET(req: NextRequest) {
 
     await appendAudit({
       tenantId,
-      eventType: 'data.exported' as any,
+      eventType: 'data.exported',
       payload: { userId: user.id, externalUserId },
       apiKeyId: authResult.auth.apiKeyId,
     })
@@ -143,7 +144,7 @@ export async function GET(req: NextRequest) {
   } catch (e) {
     logger.error({ error: e, tenantId, externalUserId }, 'Data export failed')
     return NextResponse.json(
-      { success: false, error: e instanceof Error ? e.message : 'Unknown error' },
+      safeErrorResponse(e),
       { status: 500 },
     )
   }
