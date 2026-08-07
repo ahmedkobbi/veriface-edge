@@ -5,8 +5,9 @@
  *   1. Generates/propagates request ID (X-Request-ID)
  *   2. Applies CORS headers for cross-origin SDK usage
  *   3. Applies security headers (HSTS, X-Frame-Options, etc.)
- *   4. Blocks requests to non-existent API routes (reduces scanning noise)
+ *   4. API versioning (adds Sunset header for deprecated versions)
  *   5. Strips trailing slashes (canonicalization)
+ *   6. Adds Deprecation header for sunset endpoints
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -20,11 +21,16 @@ const SECURITY_HEADERS: Record<string, string> = {
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Embedder-Policy': 'require-corp',
   'Cross-Origin-Resource-Policy': 'same-origin',
+  'X-DNS-Prefetch-Control': 'off',
+  'X-Permitted-Cross-Domain-Policies': 'none',
 }
 
-// In production, set VERIFACE_ALLOWED_ORIGINS to your client domains:
-//   VERIFACE_ALLOWED_ORIGINS=https://app.example.com,https://staging.example.com
 const ALLOWED_ORIGINS = (process.env.VERIFACE_ALLOWED_ORIGINS ?? '*').split(',').map((s) => s.trim())
+
+// API version support
+const CURRENT_API_VERSION = 'v1'
+const SUPPORTED_VERSIONS = ['v1']
+const SUNSET_VERSIONS: string[] = []  // Versions being sunset
 
 export function middleware(req: NextRequest) {
   const origin = req.headers.get('origin') ?? ''
@@ -52,15 +58,33 @@ export function middleware(req: NextRequest) {
     )
   }
 
+  // HTTP/3 advertisement (allows clients to upgrade to QUIC)
+  if (process.env.NODE_ENV === 'production') {
+    response.headers.set('Alt-Svc', 'h3=":443"; ma=86400')
+  }
+
+  // API versioning headers
+  const pathname = req.nextUrl.pathname
+  if (pathname.startsWith('/api/')) {
+    response.headers.set('API-Version', CURRENT_API_VERSION)
+    response.headers.set('Sunset', 'Sat, 01 Jan 2028 00:00:00 GMT')  // Far future
+    // Check if using a sunset version
+    const versionMatch = pathname.match(/^\/api\/(v\d+)\//)
+    if (versionMatch && SUNSET_VERSIONS.includes(versionMatch[1])) {
+      response.headers.set('Deprecation', 'true')
+      response.headers.set('Link', '</api/v1/>; rel="successor-version"')
+    }
+  }
+
   // CORS
   if (origin && (ALLOWED_ORIGINS.includes('*') || ALLOWED_ORIGINS.includes(origin))) {
     response.headers.set('Access-Control-Allow-Origin', origin)
     response.headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
     response.headers.set(
       'Access-Control-Allow-Headers',
-      'Authorization, Content-Type, X-Request-ID, Idempotency-Key, X-API-Key',
+      'Authorization, Content-Type, X-Request-ID, Idempotency-Key, X-API-Key, If-None-Match, X-VeriFace-Timestamp, X-VeriFace-Nonce, X-VeriFace-Signature',
     )
-    response.headers.set('Access-Control-Expose-Headers', 'X-Request-ID, Retry-After')
+    response.headers.set('Access-Control-Expose-Headers', 'X-Request-ID, Retry-After, ETag, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, API-Version')
     response.headers.set('Access-Control-Max-Age', '86400')
     response.headers.set('Vary', 'Origin')
   }
@@ -78,7 +102,6 @@ export function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
-    // Run on all API routes and the main page
     '/api/:path*',
     '/',
   ],

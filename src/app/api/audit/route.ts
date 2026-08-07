@@ -1,14 +1,15 @@
 /**
- * GET /api/audit?limit=50&offset=0
- * Fetch the hash-chained audit log for the authenticated tenant.
+ * GET /api/audit?limit=50&cursor=<base64>&eventType=xxx&from=ISO&to=ISO
  *
- * Requires 'audit:read' scope. Tenant ID is derived from the API key
- * (NOT from query params — prevents tenant spoofing).
+ * Cursor-based pagination for the hash-chained audit log.
+ * Returns: { entries, nextCursor, hasMore }
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { queryAuditLog } from '@/lib/audit'
 import { requireApiKey } from '@/lib/auth'
+import { jsonResponseWithETag } from '@/lib/etag'
+import { logger } from '@/lib/logger'
 
 export async function GET(req: NextRequest) {
   const authResult = await requireApiKey(req, 'audit:read')
@@ -18,22 +19,22 @@ export async function GET(req: NextRequest) {
   const tenantId = authResult.auth.tenantId!
 
   const limit = parseInt(url.searchParams.get('limit') ?? '50', 10)
-  const offset = parseInt(url.searchParams.get('offset') ?? '0', 10)
+  const cursor = url.searchParams.get('cursor') ?? undefined
   const eventType = url.searchParams.get('eventType') as any
   const from = url.searchParams.get('from')
   const to = url.searchParams.get('to')
 
-  const entries = await queryAuditLog(tenantId, {
+  const result = await queryAuditLog(tenantId, {
     limit,
-    offset,
+    cursor,
     eventType,
     from: from ? new Date(from) : undefined,
     to: to ? new Date(to) : undefined,
   })
 
-  return NextResponse.json({
+  const responseBody = {
     success: true,
-    entries: entries.map((e) => ({
+    entries: result.entries.map((e) => ({
       id: e.id,
       eventType: e.eventType,
       payload: JSON.parse(e.payload),
@@ -44,5 +45,11 @@ export async function GET(req: NextRequest) {
       apiKeyId: e.apiKeyId,
       createdAt: e.createdAt,
     })),
-  })
+    nextCursor: result.nextCursor,
+    hasMore: result.hasMore,
+  }
+
+  logger.info({ tenantId, count: result.entries.length, hasMore: result.hasMore }, 'Audit log queried')
+
+  return jsonResponseWithETag(responseBody, 200, authResult.rateLimitHeaders)
 }

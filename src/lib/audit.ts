@@ -140,23 +140,42 @@ export async function verifyAuditChain(tenantId: string): Promise<{
 }
 
 /**
- * Query audit log for a tenant (with pagination).
- * Tenant scoping is enforced at the database query level.
+ * Query audit log for a tenant with cursor-based pagination.
+ *
+ * Cursor-based pagination (not offset) is used because:
+ *   - Consistent results even if new entries are added between pages
+ *   - Better performance at scale (no COUNT OFFSET)
+ *   - Standard for time-series data
+ *
+ * Cursor format: base64(chainIndex:createdAt)
  */
 export async function queryAuditLog(
   tenantId: string,
   opts: {
     limit?: number
-    offset?: number
+    cursor?: string  // base64-encoded cursor
     eventType?: AuditEventType
     from?: Date
     to?: Date
   } = {},
-) {
+): Promise<{ entries: any[]; nextCursor: string | null; hasMore: boolean }> {
   const limit = Math.min(opts.limit ?? 50, 200)
-  const offset = opts.offset ?? 0
 
-  return db.auditLog.findMany({
+  // Decode cursor
+  let cursorChainIndex: number | undefined
+  let cursorCreatedAt: Date | undefined
+  if (opts.cursor) {
+    try {
+      const decoded = Buffer.from(opts.cursor, 'base64').toString('utf-8')
+      const [idx, ts] = decoded.split(':')
+      cursorChainIndex = parseInt(idx, 10)
+      cursorCreatedAt = new Date(ts)
+    } catch {
+      // Invalid cursor — ignore
+    }
+  }
+
+  const entries = await db.auditLog.findMany({
     where: {
       tenantId,
       ...(opts.eventType ? { eventType: opts.eventType } : {}),
@@ -168,9 +187,24 @@ export async function queryAuditLog(
             },
           }
         : {}),
+      // Cursor: get entries BEFORE the cursor (descending order)
+      ...(cursorChainIndex !== undefined
+        ? { chainIndex: { lt: cursorChainIndex } }
+        : {}),
     },
     orderBy: { chainIndex: 'desc' },
-    take: limit,
-    skip: offset,
+    take: limit + 1,  // Fetch one extra to check if there's more
   })
+
+  const hasMore = entries.length > limit
+  const results = hasMore ? entries.slice(0, limit) : entries
+
+  // Generate next cursor from the last entry
+  let nextCursor: string | null = null
+  if (hasMore && results.length > 0) {
+    const last = results[results.length - 1]
+    nextCursor = Buffer.from(`${last.chainIndex}:${last.createdAt.toISOString()}`).toString('base64')
+  }
+
+  return { entries: results, nextCursor, hasMore }
 }
