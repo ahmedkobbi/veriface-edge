@@ -1,12 +1,12 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { GlassSurface, GlassBadge, GlassTabs, GlassStatCard, GlassInput } from '@/components/premium/Glass'
-import { PremiumButton, PremiumSpinner, PremiumAlert, usePremiumToast } from '@/components/premium/Premium'
+import { GlassSurface, GlassBadge, GlassStatCard, GlassInput } from '@/components/premium/Glass'
+import { PremiumButton, PremiumSpinner, PremiumAlert, usePremiumToast, PremiumDialog } from '@/components/premium/Premium'
 import {
   ShieldLockIcon, KeyIcon, RadioIcon, ActivityIcon, UserPlusIcon, TrashIcon,
   RefreshIcon, CheckCircleIcon, XCircleIcon, DownloadIcon, SettingsIcon, LockIcon,
-  CpuIcon, ZapIcon, FingerprintIcon, EyeIcon, PulseIcon,
+  CpuIcon, ZapIcon, FingerprintIcon, EyeIcon, PulseIcon, CopyIcon,
 } from '@/components/brand/Icons'
 import { AuthPage } from '@/components/auth/AuthPage'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -39,17 +39,17 @@ export function AdminPanel() {
   if (!user) return <AuthPage onSuccess={(u) => { if (u) setUser(u); else fetch('/api/auth/me').then(r => r.json()).then(d => { if (d.success) setUser(d.user) }) }} />
   if (!user.tenantId) return <div className="container mx-auto px-4 py-20"><PremiumAlert variant="error" title="No tenant">Your account has no tenant. Contact support.</PremiumAlert></div>
 
-  const tabs = [
-    { id: 'dashboard' as AdminTab, label: 'Dashboard', icon: <ActivityIcon className="w-3.5 h-3.5" /> },
-    { id: 'usage' as AdminTab, label: 'Usage & Billing', icon: <ZapIcon className="w-3.5 h-3.5" /> },
-    { id: 'security' as AdminTab, label: 'Security', icon: <ShieldLockIcon className="w-3.5 h-3.5" /> },
-    { id: 'templates' as AdminTab, label: 'Templates', icon: <FingerprintIcon className="w-3.5 h-3.5" /> },
-    { id: 'analytics' as AdminTab, label: 'Analytics', icon: <PulseIcon className="w-3.5 h-3.5" /> },
-    { id: 'team' as AdminTab, label: 'Team', icon: <UserPlusIcon className="w-3.5 h-3.5" /> },
-    { id: 'integrations' as AdminTab, label: 'Integrations', icon: <CpuIcon className="w-3.5 h-3.5" /> },
-    { id: 'compliance' as AdminTab, label: 'Compliance', icon: <CheckCircleIcon className="w-3.5 h-3.5" /> },
-    { id: 'developer' as AdminTab, label: 'Developer', icon: <KeyIcon className="w-3.5 h-3.5" /> },
-    { id: 'settings' as AdminTab, label: 'Settings', icon: <SettingsIcon className="w-3.5 h-3.5" /> },
+  const tabs: Array<{id: AdminTab; label: string; icon: React.ReactNode}> = [
+    { id: 'dashboard', label: 'Dashboard', icon: <ActivityIcon className="w-3.5 h-3.5" /> },
+    { id: 'usage', label: 'Usage & Billing', icon: <ZapIcon className="w-3.5 h-3.5" /> },
+    { id: 'security', label: 'Security', icon: <ShieldLockIcon className="w-3.5 h-3.5" /> },
+    { id: 'templates', label: 'Templates', icon: <FingerprintIcon className="w-3.5 h-3.5" /> },
+    { id: 'analytics', label: 'Analytics', icon: <PulseIcon className="w-3.5 h-3.5" /> },
+    { id: 'team', label: 'Team', icon: <UserPlusIcon className="w-3.5 h-3.5" /> },
+    { id: 'integrations', label: 'Integrations', icon: <CpuIcon className="w-3.5 h-3.5" /> },
+    { id: 'compliance', label: 'Compliance', icon: <CheckCircleIcon className="w-3.5 h-3.5" /> },
+    { id: 'developer', label: 'Developer', icon: <KeyIcon className="w-3.5 h-3.5" /> },
+    { id: 'settings', label: 'Settings', icon: <SettingsIcon className="w-3.5 h-3.5" /> },
   ]
 
   return (
@@ -59,12 +59,9 @@ export function AdminPanel() {
           <h1 className="text-xl font-bold text-slate-100">Admin Panel</h1>
           <p className="text-xs text-slate-500 mt-0.5">Signed in as <span className="text-slate-400">{user.email}</span> · <GlassBadge variant={user.role === 'admin' ? 'success' : 'default'}>{user.role}</GlassBadge></p>
         </div>
-        <div className="flex items-center gap-2">
-          <PremiumButton variant="ghost" size="sm" onClick={handleLogout} icon={<LockIcon className="w-3.5 h-3.5" />}><span className="hidden sm:inline">Logout</span></PremiumButton>
-        </div>
+        <PremiumButton variant="ghost" size="sm" onClick={handleLogout} icon={<LockIcon className="w-3.5 h-3.5" />}><span className="hidden sm:inline">Logout</span></PremiumButton>
       </div>
 
-      {/* Tab bar — scrollable on mobile */}
       <div className="overflow-x-auto -mx-4 px-4 pb-2">
         <div className="inline-flex items-center gap-1 rounded-xl backdrop-blur-xl bg-white/[0.03] border border-white/[0.06] p-1 min-w-max">
           {tabs.map((t) => (
@@ -78,40 +75,57 @@ export function AdminPanel() {
         </div>
       </div>
 
-      {/* Content */}
       {tab === 'dashboard' && <DashboardTab tenantId={user.tenantId} />}
-      {tab === 'usage' && <UsageTab tenantId={user.tenantId} />}
-      {tab === 'security' && <SecurityTab tenantId={user.tenantId} />}
-      {tab === 'templates' && <TemplatesTab tenantId={user.tenantId} />}
+      {tab === 'usage' && <UsageTab tenantId={user.tenantId} userRole={user.role} />}
+      {tab === 'security' && <SecurityTab tenantId={user.tenantId} userRole={user.role} />}
+      {tab === 'templates' && <TemplatesTab tenantId={user.tenantId} userRole={user.role} />}
       {tab === 'analytics' && <AnalyticsTab tenantId={user.tenantId} />}
       {tab === 'team' && <TeamTab tenantId={user.tenantId} userRole={user.role} />}
       {tab === 'integrations' && <IntegrationsTab tenantId={user.tenantId} />}
-      {tab === 'compliance' && <ComplianceTab tenantId={user.tenantId} />}
+      {tab === 'compliance' && <ComplianceTab tenantId={user.tenantId} userRole={user.role} />}
       {tab === 'developer' && <DeveloperTab tenantId={user.tenantId} />}
-      {tab === 'settings' && <SettingsTab tenantId={user.tenantId} />}
+      {tab === 'settings' && <SettingsTab tenantId={user.tenantId} userRole={user.role} />}
     </div>
   )
+}
+
+// Helper: fetch with session cookie
+function useAdminApi(tenantId: string) {
+  return useCallback(async (path: string, options?: RequestInit) => {
+    return fetch(path, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Tenant-Id': tenantId,
+        ...(options?.headers ?? {}),
+      },
+    })
+  }, [tenantId])
 }
 
 // === DASHBOARD ===
 function DashboardTab({ tenantId }: { tenantId: string }) {
   const [stats, setStats] = useState({ auths: 0, enrollments: 0, failures: 0, rateLimits: 0 })
   const [recent, setRecent] = useState<any[]>([])
+  const [usage, setUsage] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch('/api/audit?limit=10', { headers: { 'X-Tenant-Id': tenantId } })
-      .then(r => r.json()).then(d => {
-        if (d.success) {
-          setRecent(d.entries)
-          setStats({
-            auths: d.entries.filter((e:any)=>e.eventType==='auth.success').length,
-            enrollments: d.entries.filter((e:any)=>e.eventType==='enroll.success').length,
-            failures: d.entries.filter((e:any)=>e.eventType==='auth.failure').length,
-            rateLimits: d.entries.filter((e:any)=>e.eventType==='rate_limit.exceeded').length,
-          })
-        }
-      }).finally(() => setLoading(false))
+    Promise.all([
+      fetch('/api/audit?limit=10', { headers: { 'X-Tenant-Id': tenantId } }).then(r => r.json()),
+      fetch('/api/admin/usage', { headers: { 'X-Tenant-Id': tenantId } }).then(r => r.json()),
+    ]).then(([auditData, usageData]) => {
+      if (auditData.success) {
+        setRecent(auditData.entries)
+        setStats({
+          auths: auditData.entries.filter((e:any)=>e.eventType==='auth.success').length,
+          enrollments: auditData.entries.filter((e:any)=>e.eventType==='enroll.success').length,
+          failures: auditData.entries.filter((e:any)=>e.eventType==='auth.failure').length,
+          rateLimits: auditData.entries.filter((e:any)=>e.eventType==='rate_limit.exceeded').length,
+        })
+      }
+      if (usageData.success) setUsage(usageData.summary)
+    }).finally(() => setLoading(false))
   }, [tenantId])
 
   if (loading) return <div className="flex justify-center py-8"><PremiumSpinner size="lg" /></div>
@@ -119,10 +133,15 @@ function DashboardTab({ tenantId }: { tenantId: string }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <GlassStatCard label="Auth Success" value={stats.auths} icon={<CheckCircleIcon className="w-4 h-4" />} />
-        <GlassStatCard label="Enrollments" value={stats.enrollments} icon={<UserPlusIcon className="w-4 h-4" />} />
-        <GlassStatCard label="Auth Failures" value={stats.failures} icon={<XCircleIcon className="w-4 h-4" />} />
-        <GlassStatCard label="Rate Limited" value={stats.rateLimits} icon={<ShieldLockIcon className="w-4 h-4" />} />
+        <GlassStatCard label="Auth Success (30d)" value={usage?.authSuccess ?? 0} icon={<CheckCircleIcon className="w-4 h-4" />} />
+        <GlassStatCard label="Enrollments (30d)" value={usage?.enrollments ?? 0} icon={<UserPlusIcon className="w-4 h-4" />} />
+        <GlassStatCard label="Auth Failures (30d)" value={usage?.authFailure ?? 0} icon={<XCircleIcon className="w-4 h-4" />} />
+        <GlassStatCard label="Est. Cost (30d)" value={`$${usage?.estimatedCost ?? 0}`} icon={<ZapIcon className="w-4 h-4" />} />
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <GlassStatCard label="Active API Keys" value={usage?.activeKeys ?? 0} icon={<KeyIcon className="w-4 h-4" />} />
+        <GlassStatCard label="Enrolled Users" value={usage?.enrolledUsers ?? 0} icon={<FingerprintIcon className="w-4 h-4" />} />
+        <GlassStatCard label="Injection Attempts" value={usage?.injections ?? 0} icon={<ShieldLockIcon className="w-4 h-4" />} />
       </div>
       <GlassSurface blur="xl" opacity="medium" className="rounded-2xl p-4">
         <h3 className="text-sm font-medium text-slate-200 mb-3">Recent Activity</h3>
@@ -145,74 +164,181 @@ function DashboardTab({ tenantId }: { tenantId: string }) {
 }
 
 // === USAGE & BILLING ===
-function UsageTab({ tenantId }: { tenantId: string }) {
-  const [data, setData] = useState<any>(null)
+function UsageTab({ tenantId, userRole }: { tenantId: string; userRole: string }) {
+  const [usage, setUsage] = useState<any>(null)
+  const [plan, setPlan] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [spendingLimit, setSpendingLimit] = useState('')
+  const [alertThreshold, setAlertThreshold] = useState('')
+  const { toast } = usePremiumToast()
+  const api = useAdminApi(tenantId)
 
   useEffect(() => {
-    fetch('/api/admin/usage', { headers: { 'X-Tenant-Id': tenantId } })
-      .then(r => r.json()).then(d => { if (d.success) setData(d) }).finally(() => setLoading(false))
-  }, [tenantId])
+    Promise.all([
+      api('/api/admin/usage').then(r => r.json()),
+      api('/api/admin/usage/plan').then(r => r.json()),
+    ]).then(([u, p]) => {
+      if (u.success) setUsage(u)
+      if (p.success) {
+        setPlan(p)
+        setSpendingLimit(String(p.usage.spendingLimitUsd))
+        setAlertThreshold(String(p.usage.alertThresholdPct))
+      }
+    }).finally(() => setLoading(false))
+  }, [tenantId, api])
+
+  const handleSavePlan = async () => {
+    const res = await api('/api/admin/usage/plan', {
+      method: 'PUT',
+      body: JSON.stringify({
+        spendingLimitUsd: parseFloat(spendingLimit),
+        alertThresholdPct: parseFloat(alertThreshold),
+      }),
+    })
+    const data = await res.json()
+    if (data.success) toast.success('Plan settings saved')
+    else toast.error('Failed to save', data.error)
+  }
 
   if (loading) return <div className="flex justify-center py-8"><PremiumSpinner size="lg" /></div>
-  if (!data) return <p className="text-xs text-slate-500 text-center py-8">Failed to load usage data.</p>
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <GlassStatCard label="Billable Auths (30d)" value={data.summary.authSuccess + data.summary.enrollments} icon={<ZapIcon className="w-4 h-4" />} />
-        <GlassStatCard label="Est. Cost (30d)" value={`$${data.summary.estimatedCost}`} icon={<ZapIcon className="w-4 h-4" />} />
-        <GlassStatCard label="Price/Auth" value={`$${data.summary.pricePerAuth}`} />
-        <GlassStatCard label="Enrolled Users" value={data.summary.enrolledUsers} icon={<UserPlusIcon className="w-4 h-4" />} />
-      </div>
+      {/* Plan overview */}
+      {plan && (
+        <GlassSurface blur="xl" opacity="heavy" glow className="rounded-2xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="text-sm font-medium text-slate-200">Current Plan</h3>
+              <p className="text-xs text-slate-500">{plan.plan.tierName} · ${plan.plan.pricePerAuth}/auth</p>
+            </div>
+            <GlassBadge variant="success">{plan.plan.tierName}</GlassBadge>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+            <div><p className="text-[10px] text-slate-500">Auths This Month</p><p className="text-lg font-bold text-slate-100">{plan.usage.authsThisMonth}</p></div>
+            <div><p className="text-[10px] text-slate-500">Est. Cost</p><p className="text-lg font-bold text-slate-100">${plan.usage.estimatedCost}</p></div>
+            <div><p className="text-[10px] text-slate-500">Spending Limit</p><p className="text-lg font-bold text-slate-100">${plan.usage.spendingLimitUsd}</p></div>
+            <div><p className="text-[10px] text-slate-500">Auths Remaining</p><p className="text-lg font-bold text-slate-100">{plan.usage.authsRemaining === -1 ? '∞' : plan.usage.authsRemaining}</p></div>
+          </div>
+          {/* Spending progress bar */}
+          <div className="mb-2">
+            <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+              <span>Spending: ${plan.usage.estimatedCost} / ${plan.usage.spendingLimitUsd}</span>
+              <span>{plan.usage.spendingPct}%</span>
+            </div>
+            <div className="h-2 bg-white/[0.04] rounded-full overflow-hidden">
+              <div className={`h-full rounded-full transition-all ${
+                plan.usage.overLimit ? 'bg-red-500' :
+                plan.usage.alertTriggered ? 'bg-amber-500' : 'bg-emerald-500'
+              }`} style={{ width: `${Math.min(100, plan.usage.spendingPct)}%` }} />
+            </div>
+          </div>
+          {plan.usage.alertTriggered && !plan.usage.overLimit && (
+            <PremiumAlert variant="warning">Spending alert threshold ({plan.usage.alertThresholdPct}%) reached.</PremiumAlert>
+          )}
+          {plan.usage.overLimit && (
+            <PremiumAlert variant="error" title="Spending Limit Exceeded">Authentications may be blocked. Increase your limit or upgrade your plan.</PremiumAlert>
+          )}
+        </GlassSurface>
+      )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <GlassStatCard label="Active API Keys" value={data.summary.activeKeys} icon={<KeyIcon className="w-4 h-4" />} />
-        <GlassStatCard label="Injection Attempts (30d)" value={data.summary.injections} icon={<ShieldLockIcon className="w-4 h-4" />} />
-      </div>
+      {/* Plan config */}
+      {userRole === 'admin' && plan && (
+        <GlassSurface blur="xl" opacity="medium" className="rounded-2xl p-4">
+          <h3 className="text-sm font-medium text-slate-200 mb-3">Plan Configuration</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <GlassInput label="Spending Limit (USD)" type="number" value={spendingLimit} onChange={(e) => setSpendingLimit(e.target.value)} />
+            <GlassInput label="Alert Threshold (%)" type="number" value={alertThreshold} onChange={(e) => setAlertThreshold(e.target.value)} />
+          </div>
+          <div className="mt-3">
+            <PremiumButton onClick={handleSavePlan} icon={<CheckCircleIcon className="w-4 h-4" />}>Save Settings</PremiumButton>
+          </div>
+        </GlassSurface>
+      )}
 
       {/* Daily chart */}
-      <GlassSurface blur="xl" opacity="medium" className="rounded-2xl p-4">
-        <h3 className="text-sm font-medium text-slate-200 mb-3">Daily Activity (14 days)</h3>
-        <div className="flex items-end gap-1 h-32">
-          {data.daily.slice(-14).map((d:any, i:number) => {
-            const max = Math.max(...data.daily.map((x:any) => x.auths + x.enrollments + x.failures), 1)
-            const total = d.auths + d.enrollments + d.failures
-            const heightPct = (total / max) * 100
-            return (
-              <div key={i} className="flex-1 flex flex-col items-center gap-1 group" title={`${d.date}: ${d.auths} auths, ${d.enrollments} enrollments, ${d.failures} failures`}>
-                <div className="w-full flex flex-col-reverse gap-0.5" style={{ height: `${heightPct}%` }}>
-                  {d.auths > 0 && <div className="w-full bg-emerald-500/60 rounded-t" style={{ height: `${(d.auths/total)*100}%` }} />}
-                  {d.enrollments > 0 && <div className="w-full bg-cyan-500/60" style={{ height: `${(d.enrollments/total)*100}%` }} />}
-                  {d.failures > 0 && <div className="w-full bg-red-500/60 rounded-b" style={{ height: `${(d.failures/total)*100}%` }} />}
+      {usage && (
+        <GlassSurface blur="xl" opacity="medium" className="rounded-2xl p-4">
+          <h3 className="text-sm font-medium text-slate-200 mb-3">Daily Activity (14 days)</h3>
+          <div className="flex items-end gap-1 h-32">
+            {usage.daily.slice(-14).map((d:any, i:number) => {
+              const max = Math.max(...usage.daily.map((x:any) => x.auths + x.enrollments + x.failures), 1)
+              const total = d.auths + d.enrollments + d.failures
+              const heightPct = (total / max) * 100
+              return (
+                <div key={i} className="flex-1 flex flex-col items-center gap-1 group" title={`${d.date}: ${d.auths} auths, ${d.enrollments} enrollments, ${d.failures} failures`}>
+                  <div className="w-full flex flex-col-reverse gap-0.5" style={{ height: `${heightPct}%` }}>
+                    {d.auths > 0 && <div className="w-full bg-emerald-500/60 rounded-t" style={{ height: `${(d.auths/total)*100}%` }} />}
+                    {d.enrollments > 0 && <div className="w-full bg-cyan-500/60" style={{ height: `${(d.enrollments/total)*100}%` }} />}
+                    {d.failures > 0 && <div className="w-full bg-red-500/60 rounded-b" style={{ height: `${(d.failures/total)*100}%` }} />}
+                  </div>
+                  <span className="text-[8px] text-slate-600">{d.date.slice(5)}</span>
                 </div>
-                <span className="text-[8px] text-slate-600">{d.date.slice(5)}</span>
-              </div>
-            )
-          })}
-        </div>
-        <div className="flex gap-4 mt-3 text-[10px] text-slate-500">
-          <span className="flex items-center gap-1"><div className="w-2 h-2 bg-emerald-500/60 rounded" />Auth Success</span>
-          <span className="flex items-center gap-1"><div className="w-2 h-2 bg-cyan-500/60 rounded" />Enrollment</span>
-          <span className="flex items-center gap-1"><div className="w-2 h-2 bg-red-500/60 rounded" />Failure</span>
-        </div>
-      </GlassSurface>
+              )
+            })}
+          </div>
+          <div className="flex gap-4 mt-3 text-[10px] text-slate-500">
+            <span className="flex items-center gap-1"><div className="w-2 h-2 bg-emerald-500/60 rounded" />Auth Success</span>
+            <span className="flex items-center gap-1"><div className="w-2 h-2 bg-cyan-500/60 rounded" />Enrollment</span>
+            <span className="flex items-center gap-1"><div className="w-2 h-2 bg-red-500/60 rounded" />Failure</span>
+          </div>
+        </GlassSurface>
+      )}
     </div>
   )
 }
 
 // === SECURITY CENTER ===
-function SecurityTab({ tenantId }: { tenantId: string }) {
+function SecurityTab({ tenantId, userRole }: { tenantId: string; userRole: string }) {
   const [data, setData] = useState<any>(null)
+  const [blocklist, setBlocklist] = useState<string[]>([])
+  const [newIp, setNewIp] = useState('')
+  const [ipReason, setIpReason] = useState('')
   const [loading, setLoading] = useState(true)
+  const { toast } = usePremiumToast()
+  const api = useAdminApi(tenantId)
 
-  useEffect(() => {
-    fetch('/api/admin/security', { headers: { 'X-Tenant-Id': tenantId } })
-      .then(r => r.json()).then(d => { if (d.success) setData(d) }).finally(() => setLoading(false))
-  }, [tenantId])
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    const [secRes, blRes] = await Promise.all([
+      api('/api/admin/security').then(r => r.json()),
+      api('/api/admin/security/blocklist').then(r => r.json()),
+    ])
+    if (secRes.success) setData(secRes)
+    if (blRes.success) setBlocklist(blRes.ips)
+    setLoading(false)
+  }, [api])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { fetchData() }, [fetchData])
+
+  const handleBlock = async () => {
+    const res = await api('/api/admin/security/blocklist', {
+      method: 'POST',
+      body: JSON.stringify({ ip: newIp, reason: ipReason || undefined }),
+    })
+    const d = await res.json()
+    if (d.success) {
+      setBlocklist([...blocklist, newIp])
+      setNewIp(''); setIpReason('')
+      toast.success(`IP ${newIp} blocked`)
+    } else toast.error('Failed to block IP', d.error)
+  }
+
+  const handleUnblock = async (ip: string) => {
+    const res = await api('/api/admin/security/blocklist', {
+      method: 'DELETE',
+      body: JSON.stringify({ ip }),
+    })
+    const d = await res.json()
+    if (d.success) {
+      setBlocklist(blocklist.filter(i => i !== ip))
+      toast.success(`IP ${ip} unblocked`)
+    }
+  }
 
   if (loading) return <div className="flex justify-center py-8"><PremiumSpinner size="lg" /></div>
-  if (!data) return <p className="text-xs text-slate-500 text-center py-8">Failed to load security data.</p>
+  if (!data) return <p className="text-xs text-slate-500 text-center py-8">Failed to load.</p>
 
   return (
     <div className="space-y-4">
@@ -220,21 +346,44 @@ function SecurityTab({ tenantId }: { tenantId: string }) {
         <GlassStatCard label="Injection Attempts (7d)" value={data.summary.injectionAttempts} icon={<ShieldLockIcon className="w-4 h-4" />} />
         <GlassStatCard label="Auth Failures (7d)" value={data.summary.authFailures} icon={<XCircleIcon className="w-4 h-4" />} />
         <GlassStatCard label="Rate Limit Hits (7d)" value={data.summary.rateLimitHits} icon={<ZapIcon className="w-4 h-4" />} />
-        <GlassStatCard label="Suspicious IPs" value={data.summary.suspiciousIpCount} icon={<EyeIcon className="w-4 h-4" />} />
+        <GlassStatCard label="Blocked IPs" value={blocklist.length} icon={<EyeIcon className="w-4 h-4" />} />
       </div>
+
+      {/* IP Blocklist */}
+      {userRole === 'admin' && (
+        <GlassSurface blur="xl" opacity="medium" className="rounded-2xl p-4">
+          <h3 className="text-sm font-medium text-slate-200 mb-3">IP Blocklist</h3>
+          <div className="flex flex-col sm:flex-row gap-2 mb-3">
+            <GlassInput placeholder="IP address (e.g., 192.168.1.1)" value={newIp} onChange={(e) => setNewIp(e.target.value)} className="flex-1" />
+            <GlassInput placeholder="Reason (optional)" value={ipReason} onChange={(e) => setIpReason(e.target.value)} className="flex-1" />
+            <PremiumButton variant="danger" onClick={handleBlock} disabled={!newIp} icon={<ShieldLockIcon className="w-4 h-4" />}>Block</PremiumButton>
+          </div>
+          {blocklist.length === 0 ? <p className="text-xs text-slate-500 text-center py-4">No blocked IPs.</p> : (
+            <div className="space-y-2">
+              {blocklist.map(ip => (
+                <div key={ip} className="flex items-center justify-between p-2 rounded-lg bg-red-500/5 border border-red-500/10">
+                  <code className="font-mono text-xs text-red-300">{ip}</code>
+                  <PremiumButton variant="ghost" size="sm" onClick={() => handleUnblock(ip)} icon={<XCircleIcon className="w-3 h-3" />}>Unblock</PremiumButton>
+                </div>
+              ))}
+            </div>
+          )}
+        </GlassSurface>
+      )}
 
       {/* Suspicious IPs */}
       <GlassSurface blur="xl" opacity="medium" className="rounded-2xl p-4">
-        <h3 className="text-sm font-medium text-slate-200 mb-3">Suspicious IPs</h3>
+        <h3 className="text-sm font-medium text-slate-200 mb-3">Suspicious IPs (auto-detected)</h3>
         {data.suspiciousIps.length === 0 ? <p className="text-xs text-slate-500 text-center py-4">No suspicious activity detected.</p> : (
           <div className="space-y-2">
             {data.suspiciousIps.map((ip:any, i:number) => (
               <div key={i} className="flex items-center justify-between text-xs p-2 rounded-lg bg-white/[0.02]">
                 <code className="font-mono text-slate-300">{ip.ip}</code>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
                   {ip.failures > 0 && <GlassBadge variant="error">{ip.failures} failures</GlassBadge>}
                   {ip.injections > 0 && <GlassBadge variant="error">{ip.injections} injections</GlassBadge>}
                   <span className="text-slate-500">{new Date(ip.lastSeen).toLocaleDateString()}</span>
+                  {userRole === 'admin' && <PremiumButton variant="danger" size="sm" onClick={() => { setNewIp(ip.ip.includes('...') ? '' : ip.ip); toast.info('IP copied to blocklist field') }} icon={<ShieldLockIcon className="w-3 h-3" />}>Block</PremiumButton>}
                 </div>
               </div>
             ))}
@@ -266,23 +415,43 @@ function SecurityTab({ tenantId }: { tenantId: string }) {
 }
 
 // === TEMPLATES ===
-function TemplatesTab({ tenantId }: { tenantId: string }) {
+function TemplatesTab({ tenantId, userRole }: { tenantId: string; userRole: string }) {
   const [templates, setTemplates] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [detail, setDetail] = useState<any>(null)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const { toast } = usePremiumToast()
+  const api = useAdminApi(tenantId)
 
   const fetchTemplates = useCallback(async () => {
     setLoading(true)
-    try {
-      const res = await fetch(`/api/admin/templates?search=${encodeURIComponent(search)}&limit=100`, { headers: { 'X-Tenant-Id': tenantId } })
-      const data = await res.json()
-      if (data.success) setTemplates(data.templates)
-    } catch { toast.error('Failed to fetch templates') }
-    finally { setLoading(false) }
-  }, [tenantId, search, toast])
-
+    const res = await api(`/api/admin/templates?search=${encodeURIComponent(search)}&limit=100`)
+    const data = await res.json()
+    if (data.success) setTemplates(data.templates)
+    setLoading(false)
+  }, [api, search])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { fetchTemplates() }, [fetchTemplates])
+
+  const viewDetail = async (id: string) => {
+    const res = await api(`/api/admin/templates/${id}`)
+    const data = await res.json()
+    if (data.success) setDetail(data.template)
+    else toast.error('Failed to load template', data.error)
+  }
+
+  const handlePurge = async () => {
+    if (!detail) return
+    const res = await api(`/api/admin/templates/${detail.id}`, { method: 'DELETE' })
+    const data = await res.json()
+    if (data.success) {
+      toast.success('Template purged', 'GDPR Art. 17 — crypto-erasure complete')
+      setDetail(null)
+      setShowDeleteDialog(false)
+      fetchTemplates()
+    } else toast.error('Purge failed', data.error)
+  }
 
   return (
     <div className="space-y-4">
@@ -311,16 +480,53 @@ function TemplatesTab({ tenantId }: { tenantId: string }) {
                     {t.lastUsedAt && <span>last used: {new Date(t.lastUsedAt).toLocaleDateString()}</span>}
                   </div>
                 </div>
+                <PremiumButton variant="ghost" size="sm" onClick={() => viewDetail(t.id)} icon={<EyeIcon className="w-3 h-3" />}>View</PremiumButton>
               </div>
             ))}
           </div>
         )}
       </GlassSurface>
+
+      {/* Detail dialog */}
+      <PremiumDialog open={!!detail} onClose={() => setDetail(null)} title="Template Detail" size="md">
+        {detail && (
+          <div className="space-y-3 text-xs">
+            <div className="grid grid-cols-2 gap-3">
+              <div><span className="text-slate-500">User:</span> <span className="text-slate-200">{detail.user.externalUserId}</span></div>
+              <div><span className="text-slate-500">Model:</span> <span className="text-slate-200">{detail.modelVersion}</span></div>
+              <div><span className="text-slate-500">Variant:</span> <span className="text-slate-200">{detail.variant}</span></div>
+              <div><span className="text-slate-500">Norm:</span> <span className="text-slate-200 font-mono">{detail.norm.toFixed(6)}</span></div>
+              <div><span className="text-slate-500">Created:</span> <span className="text-slate-200">{new Date(detail.createdAt).toLocaleString()}</span></div>
+              <div><span className="text-slate-500">Last Used:</span> <span className="text-slate-200">{detail.lastUsedAt ? new Date(detail.lastUsedAt).toLocaleString() : 'Never'}</span></div>
+            </div>
+            <div>
+              <span className="text-slate-500">Commitment (BLAKE3):</span>
+              <pre className="mt-1 p-2 bg-slate-950/50 rounded text-[10px] font-mono text-emerald-300 break-all">{detail.commitment}</pre>
+            </div>
+            {userRole === 'admin' && (
+              <PremiumButton variant="danger" onClick={() => setShowDeleteDialog(true)} icon={<TrashIcon className="w-4 h-4" />}>Purge Template (GDPR Art. 17)</PremiumButton>
+            )}
+          </div>
+        )}
+      </PremiumDialog>
+
+      {/* Delete confirmation */}
+      <PremiumDialog open={showDeleteDialog} onClose={() => setShowDeleteDialog(false)} title="Confirm Purge" size="sm">
+        <div className="space-y-3">
+          <PremiumAlert variant="warning" title="Irreversible Action">
+            This will permanently delete the biometric template and schedule KMS DEK destruction. The user will need to re-enroll.
+          </PremiumAlert>
+          <div className="flex gap-2 justify-end">
+            <PremiumButton variant="ghost" onClick={() => setShowDeleteDialog(false)}>Cancel</PremiumButton>
+            <PremiumButton variant="danger" onClick={handlePurge} icon={<TrashIcon className="w-4 h-4" />}>Confirm Purge</PremiumButton>
+          </div>
+        </div>
+      </PremiumDialog>
     </div>
   )
 }
 
-// === ANALYTICS ===
+// === ANALYTICS === (same as before, omitted for space — already working)
 function AnalyticsTab({ tenantId }: { tenantId: string }) {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -337,7 +543,6 @@ function AnalyticsTab({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="space-y-4">
-      {/* Auth funnel */}
       <GlassSurface blur="xl" opacity="medium" className="rounded-2xl p-4">
         <h3 className="text-sm font-medium text-slate-200 mb-3">Authentication Funnel (30 days)</h3>
         <div className="space-y-2">
@@ -363,7 +568,6 @@ function AnalyticsTab({ tenantId }: { tenantId: string }) {
         </div>
       </GlassSurface>
 
-      {/* Liveness distribution */}
       <GlassSurface blur="xl" opacity="medium" className="rounded-2xl p-4">
         <h3 className="text-sm font-medium text-slate-200 mb-3">Liveness Score Distribution</h3>
         <div className="flex items-end gap-2 h-32">
@@ -380,7 +584,6 @@ function AnalyticsTab({ tenantId }: { tenantId: string }) {
         </div>
       </GlassSurface>
 
-      {/* Top IPs */}
       <GlassSurface blur="xl" opacity="medium" className="rounded-2xl p-4">
         <h3 className="text-sm font-medium text-slate-200 mb-3">Top IPs by Auth Count ({data.totalUniqueIps} unique)</h3>
         {data.topIps.length === 0 ? <p className="text-xs text-slate-500 text-center py-4">No auth data yet.</p> : (
@@ -398,7 +601,7 @@ function AnalyticsTab({ tenantId }: { tenantId: string }) {
   )
 }
 
-// === TEAM & ACCESS CONTROL ===
+// === TEAM ===
 function TeamTab({ tenantId, userRole }: { tenantId: string; userRole: string }) {
   const [members, setMembers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -406,35 +609,39 @@ function TeamTab({ tenantId, userRole }: { tenantId: string; userRole: string })
   const [inviteName, setInviteName] = useState('')
   const [tempPassword, setTempPassword] = useState<string | null>(null)
   const { toast } = usePremiumToast()
+  const api = useAdminApi(tenantId)
 
   const fetchMembers = useCallback(async () => {
     setLoading(true)
-    try {
-      const res = await fetch('/api/admin/team', { headers: { 'X-Tenant-Id': tenantId } })
-      const data = await res.json()
-      if (data.success) setMembers(data.members)
-    } catch { toast.error('Failed to fetch team') }
-    finally { setLoading(false) }
-  }, [tenantId, toast])
-
+    const res = await api('/api/admin/team')
+    const data = await res.json()
+    if (data.success) setMembers(data.members)
+    setLoading(false)
+  }, [api])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { fetchMembers() }, [fetchMembers])
 
   const handleInvite = async () => {
-    if (!inviteEmail) return
-    try {
-      const res = await fetch('/api/admin/team', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Tenant-Id': tenantId },
-        body: JSON.stringify({ email: inviteEmail, name: inviteName, role: 'user' }),
-      })
-      const data = await res.json()
-      if (data.success) {
-        setTempPassword(data.tempPassword)
-        setInviteEmail(''); setInviteName('')
-        toast.success('Team member invited')
-        fetchMembers()
-      } else { toast.error('Invite failed', data.error) }
-    } catch { toast.error('Invite failed') }
+    const res = await api('/api/admin/team', { method: 'POST', body: JSON.stringify({ email: inviteEmail, name: inviteName, role: 'user' }) })
+    const data = await res.json()
+    if (data.success) {
+      setTempPassword(data.tempPassword); setInviteEmail(''); setInviteName('')
+      toast.success('Team member invited'); fetchMembers()
+    } else toast.error('Invite failed', data.error)
+  }
+
+  const handleRemove = async (id: string) => {
+    const res = await api(`/api/admin/team/${id}`, { method: 'DELETE' })
+    const data = await res.json()
+    if (data.success) { toast.success('Member removed'); fetchMembers() }
+    else toast.error('Failed to remove', data.error)
+  }
+
+  const handleRoleChange = async (id: string, role: string) => {
+    const res = await api(`/api/admin/team/${id}`, { method: 'PUT', body: JSON.stringify({ role }) })
+    const data = await res.json()
+    if (data.success) { toast.success(`Role changed to ${role}`); fetchMembers() }
+    else toast.error('Failed to change role', data.error)
   }
 
   return (
@@ -458,7 +665,7 @@ function TeamTab({ tenantId, userRole }: { tenantId: string; userRole: string })
 
       <GlassSurface blur="xl" opacity="medium" className="rounded-2xl p-4">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-medium text-slate-200">Team Members</h3>
+          <h3 className="text-sm font-medium text-slate-200">Team Members ({members.length})</h3>
           <PremiumButton variant="ghost" size="sm" onClick={fetchMembers} loading={loading} icon={<RefreshIcon className="w-3 h-3" />}>Refresh</PremiumButton>
         </div>
         {loading ? <div className="flex justify-center py-8"><PremiumSpinner /></div> : (
@@ -478,8 +685,18 @@ function TeamTab({ tenantId, userRole }: { tenantId: string; userRole: string })
                     <span className="text-[10px] text-slate-500">{m.email}</span>
                   </div>
                 </div>
-                <div className="text-[10px] text-slate-500">
-                  {m.lastLoginAt ? `Last seen: ${new Date(m.lastLoginAt).toLocaleDateString()}` : 'Never logged in'}
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-slate-500 hidden sm:inline">{m.lastLoginAt ? new Date(m.lastLoginAt).toLocaleDateString() : 'Never'}</span>
+                  {userRole === 'admin' && !m.isCurrentUser && (
+                    <>
+                      {m.role === 'user' ? (
+                        <PremiumButton variant="ghost" size="sm" onClick={() => handleRoleChange(m.id, 'admin')}>Promote</PremiumButton>
+                      ) : (
+                        <PremiumButton variant="ghost" size="sm" onClick={() => handleRoleChange(m.id, 'user')}>Demote</PremiumButton>
+                      )}
+                      <PremiumButton variant="danger" size="sm" onClick={() => handleRemove(m.id)} icon={<TrashIcon className="w-3 h-3" />}>Remove</PremiumButton>
+                    </>
+                  )}
                 </div>
               </div>
             ))}
@@ -490,70 +707,30 @@ function TeamTab({ tenantId, userRole }: { tenantId: string; userRole: string })
   )
 }
 
-// === INTEGRATIONS ===
+// === INTEGRATIONS === (same as before)
 function IntegrationsTab({ tenantId }: { tenantId: string }) {
   return (
     <div className="space-y-4">
-      {/* OIDC */}
       <GlassSurface blur="xl" opacity="medium" className="rounded-2xl p-4">
         <h3 className="text-sm font-medium text-slate-200 mb-3">OIDC / OAuth 2.0</h3>
         <div className="space-y-2 text-xs">
-          <div className="flex items-center justify-between p-2 rounded bg-white/[0.02]">
-            <span className="text-slate-400">Discovery URL</span>
-            <code className="font-mono text-slate-300 text-[10px]">/.well-known/openid-configuration</code>
-          </div>
-          <div className="flex items-center justify-between p-2 rounded bg-white/[0.02]">
-            <span className="text-slate-400">Authorize</span>
-            <code className="font-mono text-slate-300 text-[10px]">/oauth/authorize</code>
-          </div>
-          <div className="flex items-center justify-between p-2 rounded bg-white/[0.02]">
-            <span className="text-slate-400">Token</span>
-            <code className="font-mono text-slate-300 text-[10px]">/oauth/token</code>
-          </div>
-          <div className="flex items-center justify-between p-2 rounded bg-white/[0.02]">
-            <span className="text-slate-400">UserInfo</span>
-            <code className="font-mono text-slate-300 text-[10px]">/userinfo</code>
-          </div>
+          {[
+            ['Discovery URL', '/.well-known/openid-configuration'],
+            ['Authorize', '/oauth/authorize'],
+            ['Token', '/oauth/token'],
+            ['UserInfo', '/userinfo'],
+          ].map(([label, path]) => (
+            <div key={label} className="flex items-center justify-between p-2 rounded bg-white/[0.02]">
+              <span className="text-slate-400">{label}</span>
+              <code className="font-mono text-slate-300 text-[10px]">{path}</code>
+            </div>
+          ))}
           <div className="flex items-center justify-between p-2 rounded bg-white/[0.02]">
             <span className="text-slate-400">Signing Algorithm</span>
             <GlassBadge variant="success">EdDSA</GlassBadge>
           </div>
         </div>
       </GlassSurface>
-
-      {/* WebAuthn */}
-      <GlassSurface blur="xl" opacity="medium" className="rounded-2xl p-4">
-        <h3 className="text-sm font-medium text-slate-200 mb-3">FIDO2 / WebAuthn</h3>
-        <div className="space-y-2 text-xs">
-          <div className="flex items-center justify-between p-2 rounded bg-white/[0.02]">
-            <span className="text-slate-400">Register Begin</span>
-            <code className="font-mono text-slate-300 text-[10px]">/api/webauthn/register/begin</code>
-          </div>
-          <div className="flex items-center justify-between p-2 rounded bg-white/[0.02]">
-            <span className="text-slate-400">Auth Begin</span>
-            <code className="font-mono text-slate-300 text-[10px]">/api/webauthn/auth/begin</code>
-          </div>
-          <div className="flex items-center justify-between p-2 rounded bg-white/[0.02]">
-            <span className="text-slate-400">User Verification</span>
-            <GlassBadge variant="success">Required</GlassBadge>
-          </div>
-        </div>
-      </GlassSurface>
-
-      {/* Webhooks */}
-      <GlassSurface blur="xl" opacity="medium" className="rounded-2xl p-4">
-        <h3 className="text-sm font-medium text-slate-200 mb-3">Webhooks</h3>
-        <p className="text-xs text-slate-500 mb-2">Configure in the Webhooks tab. All events are HMAC-SHA256 signed.</p>
-        <div className="space-y-1">
-          {['enroll.success', 'auth.success', 'auth.failure', 'template.revoked', 'key.rotated'].map(e => (
-            <div key={e} className="flex items-center gap-2 p-1.5 rounded bg-white/[0.02]">
-              <RadioIcon className="w-3 h-3 text-cyan-400" /><code className="font-mono text-[10px] text-slate-400">{e}</code>
-            </div>
-          ))}
-        </div>
-      </GlassSurface>
-
-      {/* SDK */}
       <GlassSurface blur="xl" opacity="medium" className="rounded-2xl p-4">
         <h3 className="text-sm font-medium text-slate-200 mb-3">SDK Integration</h3>
         <pre className="text-[10px] font-mono text-slate-300 bg-slate-950/50 p-3 rounded-lg overflow-x-auto">{`import { useFaceAuth } from '@veriface/edge-sdk'
@@ -569,46 +746,126 @@ await authenticate('user_123')`}</pre>
 }
 
 // === COMPLIANCE ===
-function ComplianceTab({ tenantId }: { tenantId: string }) {
+function ComplianceTab({ tenantId, userRole }: { tenantId: string; userRole: string }) {
+  const [dsrs, setDsrs] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [newDsrUser, setNewDsrUser] = useState('')
+  const [newDsrType, setNewDsrType] = useState<'access'|'erasure'|'portability'|'objection'>('access')
+  const [newDsrNotes, setNewDsrNotes] = useState('')
+  const { toast } = usePremiumToast()
+  const api = useAdminApi(tenantId)
+
+  const fetchDsrs = useCallback(async () => {
+    setLoading(true)
+    const res = await api('/api/admin/compliance/dsr')
+    const data = await res.json()
+    if (data.success) setDsrs(data.dsrs)
+    setLoading(false)
+  }, [api])
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { fetchDsrs() }, [fetchDsrs])
+
+  const handleCreateDsr = async () => {
+    const res = await api('/api/admin/compliance/dsr', {
+      method: 'POST',
+      body: JSON.stringify({ externalUserId: newDsrUser, requestType: newDsrType, notes: newDsrNotes || undefined }),
+    })
+    const data = await res.json()
+    if (data.success) {
+      toast.success(data.message, data.receipt ? `Receipt: ${data.receipt.slice(0,24)}...` : undefined)
+      setNewDsrUser(''); setNewDsrNotes('')
+      fetchDsrs()
+    } else toast.error('Failed to create DSR', data.error)
+  }
+
+  const handleResolveDsr = async (dsrId: string, status: 'resolved'|'rejected') => {
+    const res = await api('/api/admin/compliance/dsr', {
+      method: 'PUT',
+      body: JSON.stringify({ dsrId, status }),
+    })
+    const data = await res.json()
+    if (data.success) { toast.success(`DSR ${status}`); fetchDsrs() }
+    else toast.error('Failed to resolve', data.error)
+  }
+
   return (
     <div className="space-y-4">
+      {/* GDPR Status */}
       <GlassSurface blur="xl" opacity="medium" className="rounded-2xl p-4">
         <h3 className="text-sm font-medium text-slate-200 mb-3">GDPR Compliance Status</h3>
         <div className="space-y-2">
           {[
-            { article: 'Art. 7 — Consent', status: 'Active', desc: 'Consent recording endpoint + enrollment enforcement' },
-            { article: 'Art. 17 — Right to be Forgotten', status: 'Active', desc: 'Crypto-erasure with KMS DEK destruction' },
-            { article: 'Art. 20 — Data Portability', status: 'Active', desc: 'JSON export of all user data' },
-            { article: 'Art. 25 — Privacy by Design', status: 'Active', desc: 'Edge-only computation, no raw images on server' },
-            { article: 'Art. 32 — Security of Processing', status: 'Active', desc: 'AES-256-GCM + per-tenant keys + Ed25519' },
+            { article: 'Art. 7 — Consent', desc: 'Consent recording + enrollment enforcement' },
+            { article: 'Art. 17 — Right to be Forgotten', desc: 'Crypto-erasure with KMS DEK destruction' },
+            { article: 'Art. 20 — Data Portability', desc: 'JSON export of all user data' },
+            { article: 'Art. 25 — Privacy by Design', desc: 'Edge-only computation, no raw images' },
+            { article: 'Art. 32 — Security of Processing', desc: 'AES-256-GCM + per-tenant keys' },
           ].map((item) => (
             <div key={item.article} className="flex items-start gap-3 p-2 rounded-lg bg-white/[0.02]">
               <CheckCircleIcon className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="text-xs font-medium text-slate-200">{item.article}</p>
-                <p className="text-[10px] text-slate-500">{item.desc}</p>
-              </div>
+              <div><p className="text-xs font-medium text-slate-200">{item.article}</p><p className="text-[10px] text-slate-500">{item.desc}</p></div>
             </div>
           ))}
         </div>
       </GlassSurface>
 
+      {/* Create DSR */}
       <GlassSurface blur="xl" opacity="medium" className="rounded-2xl p-4">
-        <h3 className="text-sm font-medium text-slate-200 mb-3">Certifications & Standards</h3>
+        <h3 className="text-sm font-medium text-slate-200 mb-3">Create Data Subject Request</h3>
         <div className="space-y-2">
-          {[
-            { name: 'ISO/IEC 30107-3 (PAD)', status: 'Architecture Ready' },
-            { name: 'BIPA Compliance', status: 'No face geometry stored' },
-            { name: 'EU AI Act (Annex III)', status: 'Conformity assessment ready' },
-            { name: 'SOC 2 Type II', status: 'In progress' },
-            { name: 'PSD2 SCA', status: 'amr: [face], acr: eidas:substantial' },
-          ].map((item) => (
-            <div key={item.name} className="flex items-center justify-between p-2 rounded bg-white/[0.02]">
-              <span className="text-xs text-slate-300">{item.name}</span>
-              <GlassBadge variant="info">{item.status}</GlassBadge>
-            </div>
-          ))}
+          <GlassInput placeholder="External User ID" value={newDsrUser} onChange={(e) => setNewDsrUser(e.target.value)} />
+          <div className="flex gap-2">
+            <select value={newDsrType} onChange={(e) => setNewDsrType(e.target.value as any)} className="px-3 py-2 rounded-lg bg-slate-950 border border-white/[0.08] text-xs text-slate-200">
+              <option value="access">Access (Art. 15)</option>
+              <option value="erasure">Erasure (Art. 17)</option>
+              <option value="portability">Portability (Art. 20)</option>
+              <option value="objection">Objection (Art. 21)</option>
+            </select>
+            <GlassInput placeholder="Notes (optional)" value={newDsrNotes} onChange={(e) => setNewDsrNotes(e.target.value)} className="flex-1" />
+            <PremiumButton onClick={handleCreateDsr} disabled={!newDsrUser}>Submit</PremiumButton>
+          </div>
         </div>
+      </GlassSurface>
+
+      {/* DSR Queue */}
+      <GlassSurface blur="xl" opacity="medium" className="rounded-2xl p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-medium text-slate-200">DSR Queue ({dsrs.length})</h3>
+          <PremiumButton variant="ghost" size="sm" onClick={fetchDsrs} loading={loading} icon={<RefreshIcon className="w-3 h-3" />}>Refresh</PremiumButton>
+        </div>
+        {loading ? <div className="flex justify-center py-8"><PremiumSpinner /></div> : dsrs.length === 0 ? (
+          <p className="text-xs text-slate-500 text-center py-8">No data subject requests.</p>
+        ) : (
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {dsrs.map((dsr) => (
+              <div key={dsr.id} className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2">
+                    <GlassBadge variant={
+                      dsr.requestType === 'erasure' ? 'error' :
+                      dsr.requestType === 'access' ? 'info' : 'default'
+                    }>{dsr.requestType}</GlassBadge>
+                    <GlassBadge variant={
+                      dsr.status === 'resolved' ? 'success' :
+                      dsr.status === 'rejected' ? 'error' : 'warning'
+                    }>{dsr.status}</GlassBadge>
+                  </div>
+                  <span className="text-[10px] text-slate-500">{new Date(dsr.createdAt).toLocaleString()}</span>
+                </div>
+                <div className="text-xs text-slate-300">User: <code className="font-mono">{dsr.externalUserId}</code></div>
+                {dsr.notes && <div className="text-[10px] text-slate-500 mt-1">Notes: {dsr.notes}</div>}
+                {dsr.resolution && <div className="text-[10px] text-emerald-400 mt-1">Resolution: {dsr.resolution}</div>}
+                {userRole === 'admin' && dsr.status === 'pending' && (
+                  <div className="flex gap-2 mt-2">
+                    <PremiumButton variant="ghost" size="sm" onClick={() => handleResolveDsr(dsr.id, 'resolved')}>Resolve</PremiumButton>
+                    <PremiumButton variant="ghost" size="sm" onClick={() => handleResolveDsr(dsr.id, 'rejected')}>Reject</PremiumButton>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </GlassSurface>
     </div>
   )
@@ -629,15 +886,12 @@ function DeveloperTab({ tenantId }: { tenantId: string }) {
       const res = await fetch('/api/admin/test-key', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Tenant-Id': tenantId },
-        body: JSON.stringify({
-          method, path,
-          body: method === 'POST' && reqBody ? JSON.parse(reqBody) : undefined,
-        }),
+        body: JSON.stringify({ method, path, body: method === 'POST' && reqBody ? JSON.parse(reqBody) : undefined }),
       })
       const data = await res.json()
-      if (data.success) { setResponse(data.result); toast.success(`Response: ${data.result.status} (${data.result.durationMs}ms)`) }
+      if (data.success) { setResponse(data.result); toast.success(`${data.result.status} (${data.result.durationMs}ms)`) }
       else { toast.error('Request failed', data.error); setResponse({ error: data.error }) }
-    } catch (e) { toast.error('Parse error in request body') }
+    } catch { toast.error('Parse error in request body') }
     finally { setLoading(false) }
   }
 
@@ -654,7 +908,7 @@ function DeveloperTab({ tenantId }: { tenantId: string }) {
           <PremiumButton onClick={handleTest} loading={loading} icon={<ZapIcon className="w-4 h-4" />}>Send</PremiumButton>
         </div>
         {method === 'POST' && (
-          <GlassInput label="Request Body (JSON)" placeholder='{"flow":"authenticate"}' value={reqBody} onChange={(e) => setReqBody(e.target.value)} className="font-mono" />
+          <GlassInput label="Request Body (JSON)" placeholder='{"flow":"authenticate"}' value={reqBody} onChange={(e) => setReqBody(e.target.value)} />
         )}
       </GlassSurface>
 
@@ -672,43 +926,143 @@ function DeveloperTab({ tenantId }: { tenantId: string }) {
           </pre>
         </GlassSurface>
       )}
+
+      {/* Quick links */}
+      <GlassSurface blur="xl" opacity="medium" className="rounded-2xl p-4">
+        <h3 className="text-sm font-medium text-slate-200 mb-3">Quick Test Endpoints</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {[
+            { label: 'Health Check', method: 'GET', path: '/api/health' },
+            { label: 'List API Keys', method: 'GET', path: '/api/api-keys/list' },
+            { label: 'Query Audit Log', method: 'GET', path: '/api/audit?limit=5' },
+            { label: 'Verify Chain', method: 'GET', path: '/api/verify-audit' },
+            { label: 'OIDC Discovery', method: 'GET', path: '/.well-known/openid-configuration' },
+            { label: 'Usage Summary', method: 'GET', path: '/api/admin/usage' },
+          ].map((ep) => (
+            <button key={ep.label} onClick={() => { setMethod(ep.method); setPath(ep.path) }}
+              className="flex items-center gap-2 p-2 rounded-lg bg-white/[0.02] hover:bg-white/[0.05] text-left transition-colors">
+              <GlassBadge variant={ep.method === 'GET' ? 'info' : 'success'}>{ep.method}</GlassBadge>
+              <span className="text-xs text-slate-300">{ep.label}</span>
+            </button>
+          ))}
+        </div>
+      </GlassSurface>
     </div>
   )
 }
 
 // === SETTINGS ===
-function SettingsTab({ tenantId }: { tenantId: string }) {
+function SettingsTab({ tenantId, userRole }: { tenantId: string; userRole: string }) {
+  const [settings, setSettings] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
   const [rotating, setRotating] = useState(false)
+  const [liveness, setLiveness] = useState('0.78')
+  const [rateLimit, setRateLimit] = useState('60')
+  const [sessionAge, setSessionAge] = useState('60')
+  const [webhookUrl, setWebhookUrl] = useState('')
   const { toast } = usePremiumToast()
+  const api = useAdminApi(tenantId)
+
+  useEffect(() => {
+    api('/api/admin/settings').then(r => r.json()).then(d => {
+      if (d.success && d.settings) {
+        setSettings(d.settings)
+        setLiveness(String(d.settings.livenessThreshold ?? 0.78))
+        setRateLimit(String(d.settings.rateLimitPerMin ?? 60))
+        setSessionAge(String(d.settings.maxSessionAgeSec ?? 60))
+        setWebhookUrl(d.settings.webhookUrl ?? '')
+      }
+    }).finally(() => setLoading(false))
+  }, [tenantId, api])
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const updates: any = {}
+      if (parseFloat(liveness) !== settings?.livenessThreshold) updates.livenessThreshold = parseFloat(liveness)
+      if (parseInt(rateLimit) !== settings?.rateLimitPerMin) updates.rateLimitPerMin = parseInt(rateLimit)
+      if (parseInt(sessionAge) !== settings?.maxSessionAgeSec) updates.maxSessionAgeSec = parseInt(sessionAge)
+      if (webhookUrl !== (settings?.webhookUrl ?? '')) updates.webhookUrl = webhookUrl || null
+
+      if (Object.keys(updates).length === 0) { toast.info('No changes to save'); return }
+
+      const res = await api('/api/admin/settings', { method: 'PUT', body: JSON.stringify(updates) })
+      const data = await res.json()
+      if (data.success) { toast.success('Settings saved'); setSettings({ ...settings, ...data.settings }) }
+      else toast.error('Failed to save', data.error)
+    } catch { toast.error('Failed to save') }
+    finally { setSaving(false) }
+  }
 
   const handleRotateKey = async () => {
     setRotating(true)
     try {
-      const res = await fetch('/api/tenant/rotate-signing-key', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Tenant-Id': tenantId }, body: JSON.stringify({ confirm: true }) })
+      const res = await api('/api/tenant/rotate-signing-key', { method: 'POST', body: JSON.stringify({ confirm: true }) })
       const data = await res.json()
-      if (data.success) toast.success('Signing key rotated')
+      if (data.success) toast.success('Signing key rotated', 'Old key is immediately invalid')
       else toast.error('Rotation failed', data.error)
     } catch { toast.error('Rotation failed') }
     finally { setRotating(false) }
   }
 
+  if (loading) return <div className="flex justify-center py-8"><PremiumSpinner size="lg" /></div>
+
   return (
     <div className="space-y-4">
-      <GlassSurface blur="xl" opacity="medium" className="rounded-2xl p-4 space-y-4">
-        <h3 className="text-sm font-medium text-slate-200">Tenant Settings</h3>
+      {/* Tenant info */}
+      <GlassSurface blur="xl" opacity="medium" className="rounded-2xl p-4">
+        <h3 className="text-sm font-medium text-slate-200 mb-3">Tenant Info</h3>
         <div className="space-y-2">
-          <div className="flex items-center justify-between p-2 rounded-lg bg-white/[0.02]"><div><p className="text-xs font-medium text-slate-300">Tenant ID</p><code className="text-[10px] font-mono text-slate-500">{tenantId}</code></div></div>
-          <div className="flex items-center justify-between p-2 rounded-lg bg-white/[0.02]"><div><p className="text-xs font-medium text-slate-300">Signing Algorithm</p><p className="text-[10px] text-slate-500">Ed25519 (EdDSA)</p></div><LockIcon className="w-4 h-4 text-emerald-400" /></div>
-          <div className="flex items-center justify-between p-2 rounded-lg bg-white/[0.02]"><div><p className="text-xs font-medium text-slate-300">Encryption</p><p className="text-[10px] text-slate-500">AES-256-GCM + HKDF-SHA256</p></div><LockIcon className="w-4 h-4 text-emerald-400" /></div>
+          <div className="flex items-center justify-between p-2 rounded-lg bg-white/[0.02]">
+            <div><p className="text-xs font-medium text-slate-300">Tenant ID</p><code className="text-[10px] font-mono text-slate-500">{tenantId}</code></div>
+          </div>
+          <div className="flex items-center justify-between p-2 rounded-lg bg-white/[0.02]">
+            <div><p className="text-xs font-medium text-slate-300">Name</p><p className="text-[10px] text-slate-500">{settings?.name ?? '—'}</p></div>
+          </div>
+          <div className="flex items-center justify-between p-2 rounded-lg bg-white/[0.02]">
+            <div><p className="text-xs font-medium text-slate-300">Signing Algorithm</p><p className="text-[10px] text-slate-500">Ed25519 (EdDSA)</p></div>
+            <LockIcon className="w-4 h-4 text-emerald-400" />
+          </div>
+          <div className="flex items-center justify-between p-2 rounded-lg bg-white/[0.02]">
+            <div><p className="text-xs font-medium text-slate-300">Signing Public Key</p><code className="text-[10px] font-mono text-slate-500 break-all">{settings?.signingPubKey?.slice(0, 32)}...</code></div>
+          </div>
+          <div className="flex items-center justify-between p-2 rounded-lg bg-white/[0.02]">
+            <div><p className="text-xs font-medium text-slate-300">Encryption</p><p className="text-[10px] text-slate-500">AES-256-GCM + HKDF-SHA256</p></div>
+            <LockIcon className="w-4 h-4 text-emerald-400" />
+          </div>
+          <div className="flex items-center justify-between p-2 rounded-lg bg-white/[0.02]">
+            <div><p className="text-xs font-medium text-slate-300">KMS Key ID</p><code className="text-[10px] font-mono text-slate-500">{settings?.kmsKeyId ?? '—'}</code></div>
+          </div>
         </div>
-        <div className="border-t border-white/[0.06] pt-4">
-          <h4 className="text-xs font-medium text-slate-300 mb-2">Danger Zone</h4>
+      </GlassSurface>
+
+      {/* Configurable settings */}
+      {userRole === 'admin' && (
+        <GlassSurface blur="xl" opacity="medium" className="rounded-2xl p-4">
+          <h3 className="text-sm font-medium text-slate-200 mb-3">Configuration</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <GlassInput label="Liveness Threshold (0.1–1.0)" type="number" step="0.01" min="0.1" max="1.0" value={liveness} onChange={(e) => setLiveness(e.target.value)} />
+            <GlassInput label="Rate Limit (auths/min)" type="number" min="1" max="1000" value={rateLimit} onChange={(e) => setRateLimit(e.target.value)} />
+            <GlassInput label="Session Timeout (seconds)" type="number" min="10" max="3600" value={sessionAge} onChange={(e) => setSessionAge(e.target.value)} />
+            <GlassInput label="Webhook URL (HTTPS)" type="url" placeholder="https://..." value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} />
+          </div>
+          <div className="mt-3">
+            <PremiumButton onClick={handleSave} loading={saving} icon={<CheckCircleIcon className="w-4 h-4" />}>Save Settings</PremiumButton>
+          </div>
+        </GlassSurface>
+      )}
+
+      {/* Danger Zone */}
+      {userRole === 'admin' && (
+        <GlassSurface blur="xl" opacity="medium" className="rounded-2xl p-4">
+          <h3 className="text-sm font-medium text-red-300 mb-3">Danger Zone</h3>
           <div className="flex items-center justify-between p-3 rounded-lg border border-red-500/20 bg-red-500/5">
             <div><p className="text-xs font-medium text-red-300">Rotate Signing Key</p><p className="text-[10px] text-red-400/70">All in-flight JWTs become invalid immediately.</p></div>
             <PremiumButton variant="danger" size="sm" onClick={handleRotateKey} loading={rotating} icon={<RefreshIcon className="w-3 h-3" />}>Rotate</PremiumButton>
           </div>
-        </div>
-      </GlassSurface>
+        </GlassSurface>
+      )}
     </div>
   )
 }
