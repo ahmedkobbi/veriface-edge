@@ -43,6 +43,7 @@ model Tenant {
   webhooks    WebhookDelivery[]
   apiKeys     ApiKey[]
   webauthnCreds WebAuthnCredential[]
+  platformUsers PlatformUser[]
 
   @@index([active])
 }
@@ -265,6 +266,27 @@ model WebAuthnCredential {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, userId])
+}
+
+/// Platform users — customers who sign up for VeriFace Edge accounts.
+/// Separate from biometric users (User model) — these are the enterprise
+/// admins who manage tenants, API keys, and billing.
+model PlatformUser {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String
+  name          String?
+  role          String   @default("user") // "user" | "admin"
+  emailVerified Boolean  @default(false)
+  tenantId      String?  // owned tenant (1 user → 1 tenant for now)
+  lastLoginAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant        Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([email])
+  @@index([tenantId])
 }
 
 /// Rate limit bucket (per tenant + IP). Reset every minute.
