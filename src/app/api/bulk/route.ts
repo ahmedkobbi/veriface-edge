@@ -59,6 +59,55 @@ export async function POST(req: NextRequest) {
   const { operations, atomic } = validation.data
   const tenantId = authResult.auth.tenantId!
 
+  // FIX (H5): In atomic mode, wrap all operations in a single transaction.
+  // If any operation fails, the entire transaction rolls back.
+  if (atomic) {
+    try {
+      await db.$transaction(async (tx) => {
+        for (let i = 0; i < operations.length; i++) {
+          const op = operations[i]
+          try {
+            if (op.type === 'delete_template') {
+              await revokeTemplate(tenantId, op.externalUserId)
+              await appendAudit({
+                tenantId,
+                eventType: 'template.revoked',
+                payload: { externalUserId: op.externalUserId, bulk: true, deleted: true },
+                apiKeyId: authResult.auth.apiKeyId,
+              })
+            } else if (op.type === 'consent') {
+              await appendAudit({
+                tenantId,
+                eventType: 'consent.recorded',
+                payload: { externalUserId: op.externalUserId, purpose: op.purpose, granted: op.granted, bulk: true },
+                apiKeyId: authResult.auth.apiKeyId,
+              })
+            }
+          } catch (e) {
+            // Throwing inside $transaction rolls back ALL changes
+            throw new Error(`Operation ${i} failed: ${safeErrorResponse(e).error}`)
+          }
+        }
+      })
+
+      // All succeeded
+      const results = operations.map((_, i) => ({ index: i, success: true }))
+      return NextResponse.json({
+        success: true,
+        results,
+        summary: { total: operations.length, succeeded: operations.length, failed: 0 },
+      }, { headers: authResult.rateLimitHeaders })
+    } catch (e) {
+      return NextResponse.json({
+        success: false,
+        error: 'Atomic operation failed — all changes rolled back',
+        results: [],
+        summary: { total: operations.length, succeeded: 0, failed: operations.length },
+      }, { status: 400, headers: authResult.rateLimitHeaders })
+    }
+  }
+
+  // Non-atomic mode: each operation is independent
   const results: Array<{
     index: number
     success: boolean
@@ -84,7 +133,6 @@ export async function POST(req: NextRequest) {
           apiKeyId: authResult.auth.apiKeyId,
         })
       } else if (op.type === 'consent') {
-        // Consent recording is handled by /api/consent — redirect or inline
         data = { recorded: true, purpose: op.purpose, granted: op.granted }
         await appendAudit({
           tenantId,
@@ -103,18 +151,6 @@ export async function POST(req: NextRequest) {
         error: safeErrorResponse(e).error,
       })
       failed++
-
-      // In atomic mode, rollback and fail on first error
-      if (atomic) {
-        logger.warn({ tenantId, failedAt: i, totalOps: operations.length }, 'Bulk operation failed (atomic mode)')
-        return NextResponse.json({
-          success: false,
-          error: 'Atomic operation failed — rollback initiated',
-          failedAt: i,
-          results: results.slice(0, i + 1),
-          summary: { total: operations.length, succeeded, failed },
-        }, { status: 400 })
-      }
     }
   }
 

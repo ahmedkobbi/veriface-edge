@@ -1,3 +1,4 @@
+import { constantTimeEqual } from '@/lib/crypto-server'
 /**
  * POST /api/retention/cleanup
  *
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  if (cronSecret !== expectedSecret) {
+  if (!constantTimeEqual(cronSecret ?? '', expectedSecret)) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
   }
 

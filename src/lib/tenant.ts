@@ -103,13 +103,16 @@ export async function enrollTemplate(input: EnrollmentInput): Promise<{
   const tenant = await getTenant(input.tenantId)
   if (!tenant) throw new Error('Tenant not found or inactive')
 
-  // Derive per-template DEK from tenant KMS key + per-template salt.
-  // In production: this would be an AWS KMS GenerateDataKey call.
-  // Here: HKDF(tenant.webhookSecret, salt=templateSalt, info='veriface-dek-v1')
+  // Derive per-template DEK from tenant webhook secret + revocation token as salt.
+  // The revocationToken is deterministic (derived from tenant + user + templateSalt)
+  // and stored on the User record, so verification can re-derive the same DEK.
+  // FIX (M11): Previously enrollment used templateSalt (16 bytes) but verification
+  // used revocationToken (32 bytes) — salts didn't match, decryption always failed.
   const templateSalt = secureRandomHex(16)
+  const revocationToken = sha256Hex(input.tenantId + '|' + input.externalUserId + '|' + templateSalt)
   const dek = hkdfSha256(
     utf8.encode(tenant.webhookSecret),
-    hex.decode(templateSalt),
+    hex.decode(revocationToken),
     utf8.encode('veriface-dek-v1'),
     32,
   )
@@ -135,7 +138,7 @@ export async function enrollTemplate(input: EnrollmentInput): Promise<{
 
   // Idempotent: if user exists, replace template (re-enrollment)
   // Otherwise create new user + template atomically.
-  const revocationToken = sha256Hex(tenant.id + '|' + input.externalUserId + '|' + templateSalt)
+  // revocationToken already computed above (used for DEK derivation)
 
   const result = await db.$transaction(async (tx) => {
     let user = await tx.user.findFirst({

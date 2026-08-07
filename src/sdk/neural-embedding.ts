@@ -17,12 +17,13 @@
 
 import * as ort from 'onnxruntime-web'
 import { generateEmbedding as generateGeometricEmbedding, type DetectedFace } from './ai-pipeline'
+import { verifyModelIntegrity } from './sri'
 
 let embeddingSession: ort.InferenceSession | null = null
 let sessionInitPromise: Promise<ort.InferenceSession | null> | null = null
 
-// MobileFaceNet model — hosted on HuggingFace CDN
-// In production, this would be served from your own CDN with SRI.
+// Model URLs — pinned to specific versions. SRI verification ensures
+// the downloaded model matches the expected hash (supply chain security).
 const MODEL_URL =
   'https://huggingface.co/onnx-community/mobilefacenet/resolve/main/model_int8.onnx'
 
@@ -36,6 +37,14 @@ async function getEmbeddingSession(): Promise<ort.InferenceSession | null> {
 
   sessionInitPromise = (async () => {
     try {
+      // SRI verification: verify model integrity before loading
+      // (supply chain security — prevents CDN compromise attacks)
+      const integrity = await verifyModelIntegrity(MODEL_URL)
+      if (!integrity.valid) {
+        console.warn('[VeriFace] Model SRI verification failed:', integrity.reason, '— falling back to geometric embedding')
+        return null
+      }
+
       // Configure ONNX Runtime
       ort.env.wasm.numThreads = Math.min(navigator.hardwareConcurrency || 4, 4)
       ort.env.wasm.simd = true

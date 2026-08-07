@@ -1,3 +1,4 @@
+import { constantTimeEqual } from '@/lib/crypto-server'
 /**
  * POST /api/session/cleanup
  * Cron job endpoint: expire stale pending sessions and clean up expired
@@ -24,7 +25,7 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  if (cronSecret !== expectedSecret) {
+  if (!constantTimeEqual(cronSecret ?? '', expectedSecret)) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
   }
 

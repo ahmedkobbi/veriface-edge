@@ -62,44 +62,61 @@ export async function appendAudit(event: AuditEvent): Promise<{
   chainIndex: number
   thisHash: string
 }> {
-  // Fetch the latest entry for this tenant to chain from.
-  const latest = await db.auditLog.findFirst({
-    where: { tenantId: event.tenantId },
-    orderBy: { chainIndex: 'desc' },
-  })
-
-  const prevHash = latest?.thisHash ?? GENESIS_HASH
-  const chainIndex = (latest?.chainIndex ?? -1) + 1
   const payloadStr = JSON.stringify(event.payload)
+  const MAX_RETRIES = 3
 
-  // First create the entry to get the actual createdAt from Prisma.
-  // We use a placeholder hash, then update it with the real hash.
-  const entry = await db.auditLog.create({
-    data: {
-      tenantId: event.tenantId,
-      eventType: event.eventType,
-      payload: payloadStr,
-      prevHash,
-      thisHash: 'pending',
-      chainIndex,
-      actorIp: event.actorIp,
-      apiKeyId: event.apiKeyId,
-    },
-  })
+  // FIX (H8): Use a transaction with retry on unique constraint violation.
+  // The @@unique([tenantId, chainIndex]) constraint prevents two concurrent
+  // writes from getting the same chainIndex. On collision, retry.
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      return await db.$transaction(async (tx) => {
+        // Fetch the latest entry for this tenant INSIDE the transaction
+        const latest = await tx.auditLog.findFirst({
+          where: { tenantId: event.tenantId },
+          orderBy: { chainIndex: 'desc' },
+        })
 
-  // Compute thisHash using the actual createdAt value from Prisma
-  const ts = entry.createdAt.toISOString()
-  const chainInput =
-    prevHash + '|' + event.eventType + '|' + payloadStr + '|' + ts + '|' + event.tenantId
-  const thisHash = sha256Hex(chainInput)
+        const prevHash = latest?.thisHash ?? GENESIS_HASH
+        const chainIndex = (latest?.chainIndex ?? -1) + 1
 
-  // Update the entry with the real hash
-  await db.auditLog.update({
-    where: { id: entry.id },
-    data: { thisHash },
-  })
+        // Create entry with placeholder hash
+        const entry = await tx.auditLog.create({
+          data: {
+            tenantId: event.tenantId,
+            eventType: event.eventType,
+            payload: payloadStr,
+            prevHash,
+            thisHash: 'pending',
+            chainIndex,
+            actorIp: event.actorIp,
+            apiKeyId: event.apiKeyId,
+          },
+        })
 
-  return { id: entry.id, chainIndex, thisHash }
+        // Compute thisHash using the actual createdAt from Prisma
+        const ts = entry.createdAt.toISOString()
+        const chainInput =
+          prevHash + '|' + event.eventType + '|' + payloadStr + '|' + ts + '|' + event.tenantId
+        const thisHash = sha256Hex(chainInput)
+
+        // Update with real hash
+        await tx.auditLog.update({
+          where: { id: entry.id },
+          data: { thisHash },
+        })
+
+        return { id: entry.id, chainIndex, thisHash }
+      })
+    } catch (e: any) {
+      // Retry on unique constraint violation (P2002)
+      if (e?.code === 'P2002' && attempt < MAX_RETRIES - 1) {
+        continue
+      }
+      throw e
+    }
+  }
+  throw new Error('appendAudit: max retries exceeded')
 }
 
 /**

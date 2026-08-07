@@ -1,3 +1,4 @@
+import { constantTimeEqual } from '@/lib/crypto-server'
 /**
  * POST /api/webhook/process
  * Process pending webhook deliveries.
@@ -21,7 +22,7 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  if (cronSecret !== expectedSecret) {
+  if (!constantTimeEqual(cronSecret ?? '', expectedSecret)) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
   }
 

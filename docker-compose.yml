@@ -15,8 +15,14 @@ services:
       - NODE_ENV=production
       - DATABASE_URL=postgresql://veriface:${POSTGRES_PASSWORD}@postgres:5432/veriface?schema=public
       - VERIFACE_SERVER_SIGNING_KEY=${VERIFACE_SERVER_SIGNING_KEY}
+      - VERIFACE_ENCRYPTION_KEY=${VERIFACE_ENCRYPTION_KEY}
+      - VERIFACE_ALLOWED_ORIGINS=${VERIFACE_ALLOWED_ORIGINS}
+      - VERIFACE_BOOTSTRAP_SECRET=${VERIFACE_BOOTSTRAP_SECRET}
+      - CRON_SECRET=${CRON_SECRET}
       - WEBAUTHN_RP_ID=${WEBAUTHN_RP_ID:-veriface.io}
       - WEBAUTHN_RP_ORIGIN=${WEBAUTHN_RP_ORIGIN:-https://veriface.io}
+      - OIDC_ISSUER=${OIDC_ISSUER:-https://veriface.io}
+      - SITE_URL=${SITE_URL:-https://veriface.io}
     depends_on:
       postgres:
         condition: service_healthy
@@ -57,8 +63,9 @@ services:
       - app
     environment:
       - APP_URL=http://app:3000
+      - CRON_SECRET=${CRON_SECRET}
     command: >
-      sh -c "echo '* * * * * wget -qO- --post-data='' $${APP_URL}/api/session/cleanup > /dev/null' > /etc/crontabs/root && crond -f"
+      sh -c "echo '* * * * * wget -qO- --header=\"x-cron-secret: $${CRON_SECRET}\" --post-data=\"\" http://app:3000/api/session/cleanup > /dev/null 2>&1' > /etc/crontabs/root && echo '*/5 * * * * wget -qO- --header=\"x-cron-secret: $${CRON_SECRET}\" --post-data=\"\" http://app:3000/api/webhook/process > /dev/null 2>&1' >> /etc/crontabs/root && echo '0 2 * * * wget -qO- --header=\"x-cron-secret: $${CRON_SECRET}\" --post-data=\"\" http://app:3000/api/retention/cleanup > /dev/null 2>&1' >> /etc/crontabs/root && crond -f"
     networks:
       - veriface-net
 

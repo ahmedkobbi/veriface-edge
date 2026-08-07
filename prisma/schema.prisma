@@ -192,6 +192,7 @@ model AuditLog {
   @@index([tenantId, createdAt])
   @@index([tenantId, chainIndex])
   @@index([eventType])
+  @@unique([tenantId, chainIndex])
 }
 
 /// Webhook delivery queue. Retries with exponential backoff.

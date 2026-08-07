@@ -127,9 +127,11 @@ export async function POST(req: NextRequest) {
       }, { status: 400 })
     }
 
-    // Get user info
-    const user = session.targetUserId
-      ? await db.user.findUnique({ where: { id: session.targetUserId } })
+    // Get user info — FIX (#15): session.targetUserId stores the externalUserId
+    // (set in /api/session/init), NOT the internal user ID. Look up by externalUserId.
+    const externalUserId = session.targetUserId
+    const user = externalUserId
+      ? await db.user.findFirst({ where: { tenantId: clientId, externalUserId } })
       : null
 
     if (!user) {

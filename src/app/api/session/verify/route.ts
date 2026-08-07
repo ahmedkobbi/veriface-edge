@@ -126,12 +126,37 @@ export async function POST(req: NextRequest) {
     const session = sessionCheck.session!
 
     // 2. Verify JWT signature
+    // FIX (#2): The SDK signs the JWT with its ephemeral per-session Ed25519 keypair,
+    // NOT the tenant's signing key. The ephemeral public key is included in the
+    // JWT payload's `proof.sdk_pubkey` claim. We extract it and verify against it.
     const tenant = await db.tenant.findUnique({ where: { id: tenantId } })
     if (!tenant) {
       return NextResponse.json({ success: false, error: 'Tenant not found' }, { status: 403 })
     }
 
-    const claims = await verifyJwtSignature(jwt, tenant.signingPubKey)
+    // Decode the JWT payload (without verification) to extract the SDK's ephemeral public key
+    const jwtParts = jwt.split('.')
+    if (jwtParts.length !== 3) {
+      return NextResponse.json(
+        { success: false, code: 'JWT_INVALID', error: 'Malformed JWT' },
+        { status: 401 },
+      )
+    }
+    const payloadPadded = jwtParts[1].replace(/-/g, '+').replace(/_/g, '/')
+    const payloadBin = atob(payloadPadded)
+    const payloadBytes = new Uint8Array(payloadBin.length)
+    for (let i = 0; i < payloadBin.length; i++) payloadBytes[i] = payloadBin.charCodeAt(i)
+    const unverifiedClaims = JSON.parse(new TextDecoder().decode(payloadBytes))
+    const sdkPubKey = unverifiedClaims?.proof?.sdk_pubkey
+    if (!sdkPubKey || typeof sdkPubKey !== 'string') {
+      return NextResponse.json(
+        { success: false, code: 'JWT_INVALID', error: 'JWT missing proof.sdk_pubkey' },
+        { status: 401 },
+      )
+    }
+
+    // Now verify the JWT signature using the SDK's ephemeral public key
+    const claims = await verifyJwtSignature(jwt, sdkPubKey)
     if (!claims) {
       await appendAudit({
         tenantId,
@@ -240,6 +265,25 @@ export async function POST(req: NextRequest) {
       if (!externalUserId) {
         return NextResponse.json({ success: false, error: 'externalUserId required for enroll' }, { status: 400 })
       }
+
+      // FIX (H7): Enforce GDPR Art. 7 consent before enrollment.
+      // User must have a recent ConsentRecord with granted=true for purpose='enrollment'.
+      const consentRecord = await db.consentRecord.findFirst({
+        where: {
+          tenantId,
+          purpose: 'enrollment',
+          granted: true,
+          user: { externalUserId },
+        },
+        orderBy: { createdAt: 'desc' },
+      })
+      if (!consentRecord) {
+        return NextResponse.json(
+          { success: false, code: 'CONSENT_REQUIRED', error: 'Enrollment requires prior consent (GDPR Art. 7). Call POST /api/consent first.' },
+          { status: 403 },
+        )
+      }
+
       const result = await enrollTemplate({
         tenantId,
         externalUserId,
