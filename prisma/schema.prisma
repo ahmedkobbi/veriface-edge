@@ -56,6 +56,9 @@ model Tenant {
   emailLogs   EmailLog[]
   notificationPrefs NotificationPreference[]
   apiUsageCounters ApiUsageCounter[]
+  experiments Experiment[]
+  experimentAssignments ExperimentAssignment[]
+  experimentOutcomes ExperimentOutcome[]
 
   @@index([active])
   @@index([planTier])
@@ -495,4 +498,135 @@ model ConsentRecord {
 
   @@index([tenantId, userId, purpose])
   @@index([tenantId, createdAt])
+}
+
+/// SDK error telemetry — opt-in, anonymous error reports from the browser SDK.
+/// NO PII, NO face data, NO embeddings, NO frames. Only error codes + environment.
+///
+/// Privacy contract (enforced by ingestion endpoint):
+///   - telemetryOptIn MUST be true (sent by SDK after explicit user consent)
+///   - tenantId is hashed before storage (so we can group without identifying)
+///   - errorPayload is Zod-validated to reject any field not in the allowlist
+///   - all string fields are length-capped (256 chars max)
+///   - ingestion is rate-limited per IP (10/min) to prevent abuse
+model SdkErrorEvent {
+  id              String   @id @default(cuid())
+  /// SHA-256(tenantId) — allows grouping by tenant without storing the ID.
+  tenantIdHash    String
+  /// SDK semver (e.g., "1.2.3").
+  sdkVersion      String
+  /// Error code from the VeriFaceErrorCode union (NO_LIVENESS, CAMERA_DENIED, etc.).
+  errorCode       String
+  /// Error severity: 'fatal' | 'error' | 'warning'.
+  severity        String   @default("error")
+  /// Stage where the error occurred: 'init' | 'camera' | 'capture' | 'liveness' | 'anti_injection' | 'crypto' | 'verify' | 'network'.
+  stage           String
+  /// Truncated error message (max 256 chars, PII-redacted by SDK before send).
+  errorMessage    String
+  /// Anonymous environment fingerprint (browser family + OS family, NO UA string).
+  browserFamily   String
+  osFamily        String
+  /// Whether WebGPU was available.
+  hasWebGPU       Boolean  @default(false)
+  /// Whether the camera was granted.
+  hasCamera       Boolean  @default(false)
+  /// Session ID (if available — helps correlate with backend audit log).
+  sessionId       String?
+  /// Active experiment assignment (if any) — for A/B cohort analysis.
+  experimentId    String?
+  experimentVariant String?
+  /// Anonymous client-side duration metrics (JSON, e.g., {captureMs: 1820, rppgMs: 1500}).
+  metrics         String?
+  createdAt       DateTime @default(now())
+
+  @@index([tenantIdHash, createdAt])
+  @@index([errorCode, createdAt])
+  @@index([experimentId, experimentVariant])
+}
+/// A/B test experiment definition. One experiment per "variable" being tested.
+/// E.g., liveness_threshold with variants [{name: 'control', value: 0.78}, {name: 'strict', value: 0.82}].
+model Experiment {
+  id              String   @id @default(cuid())
+  tenantId        String
+  /// Human-readable name (e.g., "Liveness threshold strictness Q3 2026").
+  name            String
+  /// What we're testing (e.g., 'liveness_threshold', 'capture_duration', 'rppg_window').
+  variable        String
+  /// Variants JSON: [{name: 'control', value: 0.78, weight: 50}, {name: 'strict', value: 0.82, weight: 50}].
+  /// Weights sum to 100. Variant 'control' is required for analysis.
+  variants        String
+  /// Description / hypothesis (markdown).
+  description     String?
+  /// State: 'draft' | 'running' | 'paused' | 'completed'.
+  state           String   @default("draft")
+  /// Minimum sample size per variant before we compute significance (default 100).
+  minSampleSize   Int      @default(100)
+  /// Statistical significance threshold (default 0.05 = 95% confidence).
+  significanceThreshold Float @default(0.05)
+  /// When the experiment started (null if draft).
+  startedAt       DateTime?
+  /// When the experiment ended (null if running).
+  endedAt          DateTime?
+  /// Auto-stop when significance is reached (default true).
+  autoStopOnSignificance Boolean @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assignments     ExperimentAssignment[]
+  outcomes        ExperimentOutcome[]
+
+  @@index([tenantId, state])
+  @@index([tenantId, variable])
+}
+
+/// Per-(user × experiment) assignment. One row per user per experiment —
+/// once assigned, the variant is sticky for the experiment's lifetime
+/// (so the user sees consistent behavior across sessions).
+model ExperimentAssignment {
+  id              String   @id @default(cuid())
+  tenantId        String
+  experimentId    String
+  /// Anonymous user bucket key (SHA-256 of externalUserId + tenant salt).
+  /// Allows re-assigning the same variant to the same user across sessions
+  /// without storing the user ID.
+  userBucketKey   String
+  /// Assigned variant name (e.g., 'control', 'strict').
+  variant         String
+  /// Resolved variant value at assignment time (e.g., 0.82 for liveness_threshold).
+  variantValue    String
+  createdAt       DateTime @default(now())
+
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  experiment      Experiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+
+  @@unique([experimentId, userBucketKey])
+  @@index([tenantId, experimentId])
+  @@index([experimentId, variant])
+}
+
+/// Experiment outcome — recorded when an assigned user completes an auth/enroll flow.
+/// Used to compute success rates per variant and statistical significance.
+model ExperimentOutcome {
+  id              String   @id @default(cuid())
+  tenantId        String
+  experimentId    String
+  /// The assignment this outcome belongs to.
+  assignmentId    String
+  variant         String
+  /// Outcome type: 'auth.success' | 'auth.failure' | 'enroll.success' | 'enroll.failure' | 'liveness.failed' | 'injection.detected'.
+  outcome         String
+  /// Liveness score at the time (for analysis).
+  livenessScore   Float?
+  /// Cosine similarity (for auth flows).
+  cosineSimilarity Float?
+  /// Time-to-complete in ms (from session.init to session.verify).
+  durationMs      Int?
+  createdAt       DateTime @default(now())
+
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  experiment      Experiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+
+  @@index([experimentId, variant, outcome])
+  @@index([assignmentId])
 }

@@ -51,5 +51,14 @@ export { DEFAULT_THEMES } from './types'
 
 export { generateNeuralEmbedding, preloadNeuralModel } from './neural-embedding'
 
+// Telemetry (opt-in, anonymous)
+export { telemetry, SdkTelemetry, withTelemetry } from './telemetry'
+export type {
+  TelemetryConfig,
+  SdkTelemetryEvent,
+  SdkErrorSeverity,
+  SdkErrorStage,
+} from './telemetry'
+
 // React hook (only if React is available)
 export { useFaceAuth } from './react'

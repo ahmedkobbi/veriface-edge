@@ -49,6 +49,7 @@ import {
   type DetectedFace,
 } from './ai-pipeline'
 import { generateNeuralEmbedding, preloadNeuralModel } from './neural-embedding'
+import { telemetry, type SdkErrorStage } from './telemetry'
 
 export type VeriFaceStatus =
   | 'idle'
@@ -98,6 +99,20 @@ export interface VeriFaceConfig {
   livenessThreshold?: number  // default 0.78
   highSecurity?: boolean
   theme?: 'light' | 'dark' | 'auto'  // for SDK UI components
+  /**
+   * OPT-IN anonymous error telemetry. MUST be false by default.
+   * Set to true ONLY after the user has explicitly consented (e.g., via
+   * a checkbox or "Send diagnostic data" toggle).
+   *
+   * When enabled, the SDK sends anonymous error reports (error code, stage,
+   * browser family, timing metrics) to /api/sdk/telemetry. NO face data,
+   * embeddings, PII, or full user-agent strings are ever sent.
+   *
+   * See src/sdk/telemetry.ts for the full privacy contract.
+   */
+  telemetryOptIn?: boolean
+  /** SDK semver (auto-populated from package.json in production). */
+  sdkVersion?: string
 }
 
 export interface VeriFaceLivenessReport {
@@ -168,7 +183,38 @@ export class VeriFace {
       livenessThreshold: config.livenessThreshold ?? 0.78,
       highSecurity: config.highSecurity ?? false,
       theme: config.theme ?? 'auto',
+      telemetryOptIn: config.telemetryOptIn ?? false,
+      sdkVersion: config.sdkVersion ?? '1.0.0',
     }
+
+    // Configure telemetry (no-op if optIn is false)
+    telemetry.configure({
+      optIn: this.config.telemetryOptIn,
+      apiBaseUrl: this.config.apiBaseUrl,
+      tenantId: this.config.tenantId,
+      sdkVersion: this.config.sdkVersion,
+    })
+  }
+
+  /**
+   * Enable or disable telemetry at runtime (e.g., when user toggles
+   * a "Send diagnostic data" checkbox in the UI).
+   */
+  setTelemetryOptIn(optIn: boolean): void {
+    telemetry.setOptIn(optIn)
+  }
+
+  /** Check if telemetry is currently enabled. */
+  isTelemetryEnabled(): boolean {
+    return telemetry.isEnabled()
+  }
+
+  /**
+   * Flush any queued telemetry events immediately. Call this before
+   * page unload (e.g., in a beforeunload handler) to avoid data loss.
+   */
+  async flushTelemetry(): Promise<void> {
+    await telemetry.flush()
   }
 
   onStatus(cb: StatusCallback): () => void {
@@ -228,13 +274,27 @@ export class VeriFace {
     })
 
     if (!response.ok) {
+      telemetry.recordError({
+        errorCode: 'NETWORK_ERROR',
+        stage: 'init',
+        error: `Session init failed: ${response.status}`,
+        metrics: { httpStatus: response.status },
+      })
       throw new VeriFaceError('NETWORK_ERROR', `Session init failed: ${response.status}`)
     }
 
     const data = await response.json()
     if (!data.success) {
+      telemetry.recordError({
+        errorCode: 'NETWORK_ERROR',
+        stage: 'init',
+        error: data.error || 'Session init failed',
+      })
       throw new VeriFaceError('NETWORK_ERROR', data.error || 'Session init failed')
     }
+
+    // Set session context for telemetry correlation
+    telemetry.setSessionContext(data.sessionId)
 
     return {
       sessionId: data.sessionId,
@@ -271,8 +331,20 @@ export class VeriFace {
       })
     } catch (e) {
       if (e instanceof DOMException && e.name === 'NotAllowedError') {
+        telemetry.recordError({
+          errorCode: 'CAMERA_DENIED',
+          severity: 'fatal',
+          stage: 'camera',
+          error: 'Camera permission denied',
+        })
         throw new VeriFaceError('CAMERA_DENIED', 'Camera permission denied')
       }
+      telemetry.recordError({
+        errorCode: 'NO_CAMERA',
+        severity: 'fatal',
+        stage: 'camera',
+        error: e instanceof Error ? e : String(e),
+      })
       throw new VeriFaceError('NO_CAMERA', 'No camera available')
     }
 
@@ -477,11 +549,23 @@ export class VeriFace {
     this.setStatus('processing')
 
     if (!this.bestEmbedding) {
+      telemetry.recordError({
+        errorCode: 'NO_FACE',
+        severity: 'error',
+        stage: 'capture',
+        error: 'No face detected during capture',
+      })
       reject(new VeriFaceError('NO_FACE', 'No face detected during capture'))
       return
     }
 
     if (!this.lastLiveness) {
+      telemetry.recordError({
+        errorCode: 'LIVENESS_FAILED',
+        severity: 'error',
+        stage: 'liveness',
+        error: 'Liveness signals not collected',
+      })
       reject(new VeriFaceError('LIVENESS_FAILED', 'Liveness signals not collected'))
       return
     }
@@ -501,6 +585,13 @@ export class VeriFace {
     )
 
     if (!antiInjection.passed) {
+      telemetry.recordError({
+        errorCode: 'INJECTION_SUSPECTED',
+        severity: 'fatal',
+        stage: 'anti_injection',
+        error: `Anti-injection failed: ${antiInjection.failureReasons.join(', ')}`,
+        metrics: { failureCount: antiInjection.failureReasons.length },
+      })
       reject(new VeriFaceError(
         'INJECTION_SUSPECTED',
         `Anti-injection failed: ${antiInjection.failureReasons.join(', ')}`,
@@ -509,6 +600,16 @@ export class VeriFace {
     }
 
     if (this.lastLiveness.overall < this.config.livenessThreshold) {
+      telemetry.recordError({
+        errorCode: 'LIVENESS_FAILED',
+        severity: 'error',
+        stage: 'liveness',
+        error: `Liveness score ${this.lastLiveness.overall.toFixed(3)} below threshold ${this.config.livenessThreshold}`,
+        metrics: {
+          livenessScore: this.lastLiveness.overall,
+          threshold: this.config.livenessThreshold,
+        },
+      })
       reject(new VeriFaceError(
         'LIVENESS_FAILED',
         `Liveness score ${this.lastLiveness.overall.toFixed(3)} below threshold ${this.config.livenessThreshold}`,
@@ -647,6 +748,13 @@ export class VeriFace {
 
     if (!response.ok) {
       const errorBody = await response.json().catch(() => ({}))
+      telemetry.recordError({
+        errorCode: errorBody.code ?? 'NETWORK_ERROR',
+        severity: 'error',
+        stage: 'verify',
+        error: errorBody.error ?? `HTTP ${response.status}`,
+        metrics: { httpStatus: response.status },
+      })
       return {
         success: false,
         sessionId,
@@ -661,6 +769,12 @@ export class VeriFace {
 
     const data = await response.json()
     if (!data.success) {
+      telemetry.recordError({
+        errorCode: data.code ?? 'VERIFICATION_FAILED',
+        severity: 'error',
+        stage: 'verify',
+        error: data.error ?? 'Verification failed',
+      })
       return {
         success: false,
         sessionId,
@@ -674,6 +788,9 @@ export class VeriFace {
     }
 
     this.setStatus('success')
+
+    // Clear session context after successful verification
+    telemetry.clearSessionContext()
 
     return {
       success: true,

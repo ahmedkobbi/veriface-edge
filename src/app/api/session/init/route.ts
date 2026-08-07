@@ -4,7 +4,11 @@
  *
  * Requires API key with 'session:init' scope.
  * Validates input via Zod schema.
- * Returns: sessionId, challenge, backendPubKey, expiresAt
+ * Returns: sessionId, challenge, backendPubKey, expiresAt, experiment
+ *
+ * If an A/B experiment for 'liveness_threshold' (or other variable) is
+ * running, the response includes the assigned variant + value so the SDK
+ * can use the experiment-driven threshold instead of its default.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -14,6 +18,7 @@ import { requireApiKey } from '@/lib/auth'
 import { validateInput, SessionInitSchema } from '@/lib/validation'
 import { logger } from '@/lib/logger'
 import { authAttemptsTotal, activeSessions } from '@/lib/metrics'
+import { getExperimentValue } from '@/lib/experiments'
 
 export async function POST(req: NextRequest) {
   const authResult = await requireApiKey(req, 'session:init')
@@ -41,6 +46,32 @@ export async function POST(req: NextRequest) {
     userAgent: req.headers.get('user-agent') ?? '',
   })
 
+  // A/B test: check for active liveness_threshold experiment
+  // (The SDK uses this value instead of its default 0.78 if present)
+  let experiment: {
+    experimentId: string | null
+    variant: string | null
+    livenessThreshold: number
+  } | null = null
+
+  if (externalUserId) {
+    try {
+      const result = await getExperimentValue(
+        tenantId,
+        'liveness_threshold',
+        externalUserId,
+        tenant.livenessThreshold ?? 0.78,
+      )
+      experiment = {
+        experimentId: result.experimentId,
+        variant: result.variant,
+        livenessThreshold: result.value,
+      }
+    } catch (e) {
+      logger.warn({ error: e, tenantId }, 'Experiment assignment failed (non-blocking)')
+    }
+  }
+
   logger.info({ tenantId, sessionId: session.sessionId, flow }, 'Session initialized')
   activeSessions.inc({ tenant_id: tenantId })
   authAttemptsTotal.inc({ tenant_id: tenantId, flow, outcome: 'init' })
@@ -51,5 +82,6 @@ export async function POST(req: NextRequest) {
     challenge: session.challenge,
     backendPubKey: session.backendPubKey,
     expiresAt: session.expiresAt.toISOString(),
+    experiment,
   })
 }

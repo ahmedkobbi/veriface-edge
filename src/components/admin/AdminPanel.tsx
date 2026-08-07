@@ -14,8 +14,9 @@ import { FraudScoreModule, AccessPoliciesModule, WebhookDeliveryModule, Branding
 import { SamlConfigModule } from '@/components/admin/SamlConfigModule'
 import { AuditStreamModule, MultiRegionModule } from '@/components/admin/StreamRegionModules'
 import { NotificationsModule, RateLimitModule } from '@/components/admin/NotificationsModules'
+import { TelemetryModule, ExperimentsModule } from '@/components/admin/TelemetryExperimentModules'
 
-type AdminTab = 'dashboard' | 'usage' | 'security' | 'templates' | 'analytics' | 'team' | 'integrations' | 'compliance' | 'developer' | 'settings' | 'fraud' | 'policies' | 'webhooks' | 'branding' | 'embed' | 'status' | 'audit-stream' | 'regions' | 'notifications' | 'rate-limits'
+type AdminTab = 'dashboard' | 'usage' | 'security' | 'templates' | 'analytics' | 'team' | 'integrations' | 'compliance' | 'developer' | 'settings' | 'fraud' | 'policies' | 'webhooks' | 'branding' | 'embed' | 'status' | 'audit-stream' | 'regions' | 'notifications' | 'rate-limits' | 'telemetry' | 'experiments'
 
 interface PlatformUser {
   id: string; email: string; name: string | null; role: string
@@ -64,6 +65,8 @@ export function AdminPanel() {
     { id: 'regions', label: 'Multi-Region', icon: <CpuIcon className="w-3.5 h-3.5" /> },
     { id: 'notifications', label: 'Notifications', icon: <MailIcon className="w-3.5 h-3.5" /> },
     { id: 'rate-limits', label: 'Rate Limits', icon: <ZapIcon className="w-3.5 h-3.5" /> },
+    { id: 'telemetry', label: 'Telemetry', icon: <ActivityIcon className="w-3.5 h-3.5" /> },
+    { id: 'experiments', label: 'Experiments', icon: <ZapIcon className="w-3.5 h-3.5" /> },
   ]
 
   return (
@@ -109,6 +112,8 @@ export function AdminPanel() {
       {tab === 'regions' && <MultiRegionModule tenantId={user.tenantId} userRole={user.role} />}
       {tab === 'notifications' && <NotificationsModule tenantId={user.tenantId} />}
       {tab === 'rate-limits' && <RateLimitModule tenantId={user.tenantId} userRole={user.role} />}
+      {tab === 'telemetry' && <TelemetryModule tenantId={user.tenantId} />}
+      {tab === 'experiments' && <ExperimentsModule tenantId={user.tenantId} userRole={user.role} />}
     </div>
   )
 }

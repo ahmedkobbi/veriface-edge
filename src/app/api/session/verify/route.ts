@@ -41,6 +41,7 @@ import { authAttemptsTotal, enrollmentsTotal, cryptoOperationDurationSeconds, in
 import { safeErrorResponse } from '@/lib/config'
 import { incrementMonthlyUsage, getPlan } from '@/lib/rate-limit-tiers'
 import { notifyBillingThreshold, notifyBillingLimitReached, notifyInjectionDetected, getTenantAdminRecipient } from '@/lib/email-notifications'
+import { getExperimentValue, recordOutcome, type ExperimentOutcomeType } from '@/lib/experiments'
 
 interface VerifyPayload {
   sessionId: string
@@ -209,6 +210,24 @@ export async function POST(req: NextRequest) {
       })
       await completeSession(sessionId, 'failed', { reason: 'ANTI_INJECTION_FAILED' })
 
+      // Record experiment outcome: injection detected
+      if (externalUserId) {
+        try {
+          const expResult = await getExperimentValue(tenantId, 'liveness_threshold', externalUserId, 0.78)
+          if (expResult.experimentId && expResult.variant) {
+            void recordOutcome({
+              tenantId,
+              experimentId: expResult.experimentId,
+              variant: expResult.variant,
+              externalUserId,
+              outcome: 'injection.detected',
+            }).catch((e) => logger.warn({ error: e }, 'Failed to record experiment outcome'))
+          }
+        } catch (e) {
+          logger.warn({ error: e, tenantId }, 'Experiment lookup failed for injection outcome')
+        }
+      }
+
       // Fire injection-detected email to tenant admin (best-effort, non-blocking)
       try {
         const admin = await getTenantAdminRecipient(tenantId)
@@ -233,8 +252,32 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // 5. Liveness threshold check (per-tenant override)
-    const threshold = tenant.livenessThreshold ?? LIVENESS_THRESHOLD
+    // 5. Liveness threshold check
+    // Order of precedence: active experiment variant > tenant override > global default
+    let threshold = tenant.livenessThreshold ?? LIVENESS_THRESHOLD
+    let experimentContext: { experimentId: string | null; variant: string | null } = {
+      experimentId: null,
+      variant: null,
+    }
+
+    if (externalUserId) {
+      try {
+        const expResult = await getExperimentValue(
+          tenantId,
+          'liveness_threshold',
+          externalUserId,
+          threshold,
+        )
+        threshold = expResult.value
+        experimentContext = {
+          experimentId: expResult.experimentId,
+          variant: expResult.variant,
+        }
+      } catch (e) {
+        logger.warn({ error: e, tenantId }, 'Experiment lookup failed (using default threshold)')
+      }
+    }
+
     if (liveness.overall < threshold) {
       await appendAudit({
         tenantId,
@@ -243,6 +286,19 @@ export async function POST(req: NextRequest) {
         actorIp: clientIp,
       })
       await completeSession(sessionId, 'failed', { reason: 'LIVENESS_FAILED', score: liveness.overall })
+
+      // Record experiment outcome (if assigned)
+      if (experimentContext.experimentId && experimentContext.variant && externalUserId) {
+        void recordOutcome({
+          tenantId,
+          experimentId: experimentContext.experimentId,
+          variant: experimentContext.variant,
+          externalUserId,
+          outcome: 'liveness.failed',
+          livenessScore: liveness.overall,
+        }).catch((e) => logger.warn({ error: e }, 'Failed to record experiment outcome'))
+      }
+
       return NextResponse.json(
         { success: false, code: 'LIVENESS_FAILED', error: `Liveness ${liveness.overall.toFixed(3)} < ${threshold}` },
         { status: 403 },
@@ -346,6 +402,19 @@ export async function POST(req: NextRequest) {
         liveness,
       })
 
+      // Record experiment outcome: enroll.success
+      if (experimentContext.experimentId && experimentContext.variant) {
+        void recordOutcome({
+          tenantId,
+          experimentId: experimentContext.experimentId,
+          variant: experimentContext.variant,
+          externalUserId,
+          outcome: 'enroll.success',
+          livenessScore: liveness.overall,
+          durationMs: Date.now() - startTime,
+        }).catch((e) => logger.warn({ error: e }, 'Failed to record experiment outcome'))
+      }
+
       // Increment monthly usage + fire billing alerts if thresholds crossed
       try {
         const plan = getPlan(tenant.planTier)
@@ -386,6 +455,20 @@ export async function POST(req: NextRequest) {
           actorIp: clientIp,
         })
         await completeSession(sessionId, 'failed', { reason: 'NO_MATCH', cosine: result.cosineSimilarity })
+
+        // Record experiment outcome: auth.failure
+        if (experimentContext.experimentId && experimentContext.variant) {
+          void recordOutcome({
+            tenantId,
+            experimentId: experimentContext.experimentId,
+            variant: experimentContext.variant,
+            externalUserId,
+            outcome: 'auth.failure',
+            cosineSimilarity: result.cosineSimilarity,
+            durationMs: Date.now() - startTime,
+          }).catch((e) => logger.warn({ error: e }, 'Failed to record experiment outcome'))
+        }
+
         return NextResponse.json(
           { success: false, code: 'NO_MATCH', error: `Cosine ${result.cosineSimilarity.toFixed(3)} < ${result.threshold}` },
           { status: 401 },
@@ -404,6 +487,20 @@ export async function POST(req: NextRequest) {
         cosine: result.cosineSimilarity,
         liveness,
       })
+
+      // Record experiment outcome: auth.success
+      if (experimentContext.experimentId && experimentContext.variant) {
+        void recordOutcome({
+          tenantId,
+          experimentId: experimentContext.experimentId,
+          variant: experimentContext.variant,
+          externalUserId,
+          outcome: 'auth.success',
+          livenessScore: liveness.overall,
+          cosineSimilarity: result.cosineSimilarity,
+          durationMs: Date.now() - startTime,
+        }).catch((e) => logger.warn({ error: e }, 'Failed to record experiment outcome'))
+      }
 
       // Increment monthly usage + fire billing alerts if thresholds crossed
       try {

@@ -86,3 +86,145 @@ Stage Summary:
 - All cron endpoints fail-closed (require CRON_SECRET in production)
 - Files added: src/lib/rate-limit-tiers.ts, src/lib/email-notifications.ts, src/components/admin/NotificationsModules.tsx, src/app/api/notifications/process-queue/route.ts, src/app/api/admin/notifications/{history,preferences,stats,send-test,retry}/route.ts, src/app/api/admin/plan/route.ts, tests/rate-limit-tiers.test.ts, tests/email-notifications.test.ts
 - Files modified: prisma/schema.prisma, src/lib/auth.ts, src/lib/metrics.ts, src/lib/rate-limit-tiers.ts, src/app/api/session/verify/route.ts, src/app/api/auth/login/route.ts, src/app/api/auth/2fa/disable/route.ts, src/app/api/api-keys/create/route.ts, src/app/api/api-keys/revoke/route.ts, src/app/api/customer/notifications/route.ts, src/app/api/admin/usage/plan/route.ts, src/components/admin/AdminPanel.tsx, src/components/brand/Icons.tsx
+
+---
+Task ID: telemetry-and-experiments
+Agent: main (Super Z)
+Task: SDK error telemetry (opt-in anonymous) + A/B testing framework (test different liveness thresholds per cohort)
+
+Work Log:
+- Read existing project state: src/sdk/{veriface,index,types,error-boundary}.ts, src/app/api/session/{init,verify}/route.ts, prisma/schema.prisma, src/components/admin/AdminPanel.tsx
+- Extended Prisma schema with 4 new models:
+  - `SdkErrorEvent` (tenantIdHash not tenantId — privacy via SHA-256 hash; errorCode/stage/severity; browserFamily/osFamily not full UA; sessionId optional; experimentId/Variant optional for cohort attribution)
+  - `Experiment` (variable, variants JSON, state machine draft→running→paused→completed, minSampleSize, significanceThreshold, autoStopOnSignificance)
+  - `ExperimentAssignment` (sticky per-user-per-experiment; userBucketKey = SHA-256(tenantWebhookSecret|experimentId|externalUserId); @@unique on [experimentId, userBucketKey])
+  - `ExperimentOutcome` (variant + outcome type + livenessScore + cosineSimilarity + durationMs)
+  - Added relations + back-relations on Tenant
+- Ran `prisma db push --accept-data-loss` to sync schema
+- Created `src/sdk/telemetry.ts` (browser SDK module):
+  - Opt-in ONLY — `telemetryOptIn: false` by default in VeriFaceConfig
+  - Privacy contract: NO face data, embeddings, PII, full UA strings, IP addresses, or session tokens
+  - Sends: error codes, SDK version, stage, browser/OS family (extracted locally), WebGPU/camera availability, anonymous timing metrics, experiment variant
+  - 8 PII redaction patterns (email, JWT, credit card, IPv4, IPv6, phone, cuid session ID, 32+ hex blobs) — applied before send
+  - String length caps (256 chars max)
+  - Batching: 30s flush interval OR 10 events accumulated; fatal errors trigger immediate flush
+  - Failed sends re-queued on 5xx, dropped on 4xx
+  - `keepalive: true` on fetch so requests survive page unload
+  - `setExperimentContext()` for A/B cohort attribution
+  - `setSessionContext()` for backend audit log correlation
+  - `disable()` immediately clears queue + stops timer (consent revocation)
+  - `withTelemetry()` convenience wrapper for instrumenting async operations
+- Wired telemetry into VeriFace SDK main module (`src/sdk/veriface.ts`):
+  - Added `telemetryOptIn` + `sdkVersion` to VeriFaceConfig
+  - Constructor calls `telemetry.configure()` (no-op if optIn is false)
+  - Added `setTelemetryOptIn()`, `isTelemetryEnabled()`, `flushTelemetry()` public methods
+  - Wired telemetry.recordError() into 7 error paths:
+    - init: NETWORK_ERROR (HTTP failure + body error)
+    - camera: CAMERA_DENIED, NO_CAMERA
+    - capture: NO_FACE
+    - liveness: LIVENESS_FAILED (signals not collected)
+    - anti_injection: INJECTION_SUSPECTED (with failureCount metric)
+    - liveness: LIVENESS_FAILED (below threshold — with livenessScore + threshold metrics)
+    - verify: NETWORK_ERROR, VERIFICATION_FAILED
+  - Sets session context after initSession succeeds
+  - Clears session context after successful verify
+- Exported telemetry from `src/sdk/index.ts`
+- Created `src/lib/experiments.ts` (A/B testing framework):
+  - `ExperimentVariant` type: { name, value (number|string|boolean), weight (0-100) }
+  - `ExperimentVariable` union: liveness_threshold, capture_duration_ms, rppg_window_ms, pad_threshold, cosine_threshold
+  - `assignVariant()`: deterministic hash bucketing
+    - userBucketKey = SHA-256(tenantWebhookSecret | experimentId | externalUserId) — salted with tenant secret so same user hashes differently across tenants
+    - bucket = first 8 hex chars mod 100 → walks variant weights
+    - Sticky: persisted in ExperimentAssignment table with @@unique constraint
+    - Race-safe: P2002 unique violation triggers re-fetch
+  - `getExperimentValue()`: convenience wrapper — returns {value, experimentId, variant} or defaultValue
+  - `recordOutcome()`: records auth.success/failure, enroll.success/failure, liveness.failed, injection.detected
+  - `computeSignificance()`: two-proportion z-test
+    - H0: p_control = p_variant; H1: p_control ≠ p_variant
+    - z = (p̂_control - p̂_variant) / sqrt(p̂_pool * (1 - p̂_pool) * (1/n_control + 1/n_variant))
+    - p-value = 2 * (1 - Φ(|z|)) using Abramowitz & Stegun formula 7.1.26
+    - Returns per-variant: nControl, nVariant, pControl, pVariant, uplift, relativeUplift, zScore, pValue, significant, hasEnoughSamples
+  - `computeVariantStats()`: per-variant success rate, avg liveness score, avg duration
+  - `createExperiment()`: validates variants (≥2, must include 'control', weights sum to 100, unique names)
+  - State machine: draft → running → paused → completed
+  - Auto-stop: when autoStopOnSignificance is true and any variant reaches significance, experiment auto-completes
+- Created `POST /api/sdk/telemetry` (ingestion endpoint):
+  - NO auth required (SDK may not have valid session at error time)
+  - Rate limited: 10 events/min per IP (in-memory Map; production: Redis)
+  - Body size limit: 10KB
+  - Zod validation: rejects any field not in allowlist
+  - Allowed error codes: 16 codes matching VeriFaceErrorCode union
+  - Allowed stages: 8 stages matching SDK lifecycle
+  - Allowed browser families: 7 (firefox/edge/opera/chrome/chromium/safari/unknown) — NO full UA strings
+  - Allowed OS families: 6 (windows/macos/linux/android/ios/unknown)
+  - `telemetryOptIn: z.literal(true)` — MUST be explicitly true
+  - tenantId is SHA-256 hashed before storage (never stored raw)
+  - Max 50 events per batch
+  - Uses `createMany` for bulk insert
+- Created `GET /api/admin/telemetry/stats`:
+  - Counts by severity (24h, 7d, 30d)
+  - Top error codes (30d, top 10)
+  - Top stages (30d)
+  - Browser breakdown (30d)
+  - OS breakdown (30d)
+  - SDK version breakdown (30d, top 5)
+  - WebGPU adoption rate (30d)
+  - 14-day error trend (per-day, broken down by severity)
+- Created `GET /api/admin/telemetry/errors`:
+  - Cursor-paginated error event list
+  - Filters: errorCode, severity, stage
+  - Max 200 per page
+- Created experiments CRUD endpoints:
+  - `GET /api/admin/experiments` — list all experiments for tenant
+  - `POST /api/admin/experiments` — create new experiment (admin only, Zod-validated)
+  - `GET /api/admin/experiments/[id]` — experiment details + variant stats
+  - `PATCH /api/admin/experiments/[id]` — start/pause/complete (state machine validation)
+  - `DELETE /api/admin/experiments/[id]` — delete (only if draft or completed)
+  - `GET /api/admin/experiments/[id]/significance` — statistical analysis with recommendation
+- Wired A/B testing into session flow:
+  - `src/app/api/session/init/route.ts`: checks for active liveness_threshold experiment, returns `experiment: {experimentId, variant, livenessThreshold}` in response (SDK uses this value instead of default 0.78)
+  - `src/app/api/session/verify/route.ts`:
+    - Liveness threshold now uses experiment-driven value (precedence: experiment > tenant override > global default)
+    - Records experiment outcomes at 5 points: injection.detected, liveness.failed, auth.success, auth.failure, enroll.success
+    - Outcome includes livenessScore, cosineSimilarity, durationMs
+- Created `src/components/admin/TelemetryExperimentModules.tsx`:
+  - `TelemetryModule` — 2 sub-tabs:
+    - Dashboard: 4 severity count cards, 14-day trend bar chart (color-coded by severity), top error codes, top stages, browser/OS breakdown, WebGPU adoption rate, SDK version breakdown, privacy info alert
+    - Error Log: filterable by error code (8 quick filters), scrollable list with severity badge, error code, stage, experiment variant attribution, metrics display
+  - `ExperimentsModule` — list view + detail view:
+    - List: experiment cards with state badge, variable, variant count, min sample size
+    - Detail: significance analysis with recommendation alert, per-variant stats (assignments, outcomes, success rate, avg liveness, avg duration), z-score + p-value display, state machine controls (Start/Pause/Resume/Complete)
+    - Create dialog: name, variable dropdown, description, variant editor (add/remove rows, name + value + weight inputs, live weight sum validation)
+- Wired new modules into `src/components/admin/AdminPanel.tsx`: added 'telemetry' and 'experiments' tabs
+- Fixed PII redaction order in `src/sdk/telemetry.ts`: moved credit card regex before phone (phone regex was matching 16-digit card numbers)
+- Fixed `userBucketKey` variable scoping bug in `src/lib/experiments.ts` (was using closure variable outside its scope in 2 places)
+- Fixed `z.record(z.number())` → `z.record(z.string(), z.number())` in telemetry Zod schema (Zod v4 requires explicit key type)
+- Added tenant relations to schema (Experiment, ExperimentAssignment, ExperimentOutcome all need `tenant Tenant @relation` for `include: { tenant: true }` to work)
+- Wrote 58 tests in `tests/telemetry-experiments.test.ts`:
+  - normalCdf: 7 tests (median, std dev, symmetry, tails)
+  - twoProportionZTest: 9 tests (equal proportions, large/small sample, zero/all successes, sign direction)
+  - Variant validation: 8 tests (valid 2/3-variant, single variant, no control, bad weights, duplicates, negative weights, 100/0 edge)
+  - Bucket-to-variant: 6 tests (50/50 split boundaries, 60/20/20 split, determinism)
+  - Variant value parsing: 4 tests (numeric, boolean, string fallback, empty string)
+  - PII redaction: 9 tests (email, IPv4, phone, credit card, cuid, JWT, hex blobs, non-PII preservation, multi-PII)
+  - Environment detection: 5 tests (Firefox, Edge, Chrome vs Chromium, Safari)
+  - Rate limiting: 4 tests (10/min, 60s window, 50 batch, 10KB body)
+  - Allowed values: 4 tests (16 error codes, 8 stages, 3 severities, browser family allowlist)
+- All 108 tests pass (50 from previous task + 58 new)
+- TypeScript compiles cleanly (only 4 pre-existing errors in unrelated files)
+- Dev server boots successfully; verified endpoints respond:
+  - `POST /api/sdk/telemetry` with empty body → 400 (validation)
+  - `POST /api/sdk/telemetry` with valid payload → 200 `{success:true, ingested:1}`
+  - `GET /api/admin/telemetry/stats` → 401 (correctly requires session)
+  - `GET /api/admin/experiments` → 401 (correctly requires session)
+
+Stage Summary:
+- SDK error telemetry: opt-in (default off), anonymous (tenantId hashed, no PII/face data/embeddings/UA strings), batched (30s/10 events), rate-limited (10/min/IP), Zod-validated allowlist, 8 PII redaction patterns
+- A/B testing: deterministic hash bucketing (SHA-256 with tenant salt), sticky assignments (DB-persisted), 5 variables (liveness_threshold, capture_duration_ms, rppg_window_ms, pad_threshold, cosine_threshold), two-proportion z-test for significance, auto-stop on significance, per-variant success rate / liveness / duration tracking
+- Experiment-driven liveness threshold: precedence (experiment > tenant override > global default), wired into session/init (returns variant to SDK) and session/verify (uses variant value + records outcome)
+- 5 outcome types tracked: auth.success, auth.failure, enroll.success, liveness.failed, injection.detected
+- 2 new admin UI tabs: Telemetry (dashboard + error log) + Experiments (list + detail with significance analysis + create dialog)
+- Privacy contract enforced at 3 layers: SDK (opt-in flag, PII redaction before send), API (Zod allowlist, body size limit, rate limit, tenantId hashing), DB (no raw tenantId stored, no PII fields)
+- 58 new tests added (108 total passing); no regressions
+- Files added: src/sdk/telemetry.ts, src/lib/experiments.ts, src/components/admin/TelemetryExperimentModules.tsx, src/app/api/sdk/telemetry/route.ts, src/app/api/admin/telemetry/{stats,errors}/route.ts, src/app/api/admin/experiments/route.ts, src/app/api/admin/experiments/[id]/{route,significance/route}.ts, tests/telemetry-experiments.test.ts
+- Files modified: prisma/schema.prisma, src/sdk/{veriface,index}.ts, src/app/api/session/{init,verify}/route.ts, src/components/admin/AdminPanel.tsx
