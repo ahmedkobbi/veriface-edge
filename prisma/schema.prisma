@@ -279,3 +279,26 @@ model RateLimitBucket {
 
   @@index([bucketKey, windowStart])
 }
+
+/// Consent records (GDPR Art. 7). Every biometric processing requires
+/// explicit, time-stamped consent. Withdrawing consent triggers
+/// template deletion (Right to be Forgotten).
+model ConsentRecord {
+  id              String   @id @default(cuid())
+  userId          String
+  tenantId        String
+  /// Purpose of processing: 'authentication' | 'enrollment' | 'age_verification'
+  purpose         String
+  /// Whether consent was given or withdrawn.
+  granted         Boolean
+  /// IP address of the user at consent time.
+  ip              String?
+  /// User agent string.
+  userAgent       String?
+  /// Optional: consent flow version (for A/B testing consent UX).
+  flowVersion     String?
+  createdAt       DateTime @default(now())
+
+  @@index([tenantId, userId, purpose])
+  @@index([tenantId, createdAt])
+}

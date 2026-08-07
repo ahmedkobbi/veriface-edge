@@ -13,6 +13,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { sha256Hex, secureRandomHex, constantTimeEqual } from '@/lib/crypto-server'
 import { appendAudit } from '@/lib/audit'
+import { logger } from '@/lib/logger'
+import { apiKeyAuthAttemptsTotal, rateLimitHitsTotal } from '@/lib/metrics'
 
 // ---------------------------------------------------------------------------
 // API key management
@@ -178,20 +180,34 @@ export async function authenticateRequest(req: NextRequest): Promise<AuthResult>
   }
 
   const keyHash = sha256Hex(plaintext)
-  // Constant-time comparison would require fetching all keys — for performance
-  // we index by keyHash (already a hash, so timing attack on the lookup is moot).
+  // The keyHash is already a SHA-256 hash, so timing attacks on the DB lookup
+  // reveal only the hash (not the plaintext). The hash itself is not secret.
+  // We additionally use constant-time comparison on the stored vs computed hash
+  // to eliminate any residual timing side-channel.
   const apiKey = await db.apiKey.findUnique({
     where: { keyHash },
     include: { tenant: true },
   })
 
   if (!apiKey || !apiKey.active) {
+    apiKeyAuthAttemptsTotal.inc({ outcome: 'key_not_found' })
+    logger.warn({ reason: 'KEY_NOT_FOUND_OR_REVOKED' }, 'API key auth failed')
     return { authenticated: false, reason: 'KEY_NOT_FOUND_OR_REVOKED' }
   }
+
+  // Constant-time hash comparison (defense in depth — even though DB lookup
+  // is by hash, verify the stored hash matches our computed hash in constant time)
+  if (!constantTimeEqual(apiKey.keyHash, keyHash)) {
+    apiKeyAuthAttemptsTotal.inc({ outcome: 'hash_mismatch' })
+    return { authenticated: false, reason: 'KEY_NOT_FOUND_OR_REVOKED' }
+  }
+
   if (apiKey.expiresAt && apiKey.expiresAt < new Date()) {
+    apiKeyAuthAttemptsTotal.inc({ outcome: 'expired' })
     return { authenticated: false, reason: 'KEY_EXPIRED' }
   }
   if (!apiKey.tenant || !apiKey.tenant.active) {
+    apiKeyAuthAttemptsTotal.inc({ outcome: 'tenant_inactive' })
     return { authenticated: false, reason: 'TENANT_INACTIVE' }
   }
 
@@ -200,6 +216,8 @@ export async function authenticateRequest(req: NextRequest): Promise<AuthResult>
     where: { id: apiKey.id },
     data: { lastUsedAt: new Date() },
   }).catch(() => {})
+
+  apiKeyAuthAttemptsTotal.inc({ outcome: 'success' })
 
   return {
     authenticated: true,
@@ -309,13 +327,16 @@ export async function checkRateLimit(
 
 /**
  * Combined middleware: authenticate + rate limit + extract client IP.
- * Returns NextResponse (error) on failure, or { auth, ip } on success.
+ * Returns NextResponse (error) on failure, or { auth, ip, rateLimitHeaders } on success.
+ *
+ * Rate limit headers (X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset)
+ * are included in success responses by the calling route.
  */
 export async function requireApiKey(
   req: NextRequest,
   requiredScope: string = '*',
 ): Promise<
-  | { ok: true; auth: AuthResult; ip: string }
+  | { ok: true; auth: AuthResult; ip: string; rateLimitHeaders: Record<string, string> }
   | { ok: false; response: NextResponse }
 > {
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
@@ -345,7 +366,16 @@ export async function requireApiKey(
   const tenant = await db.tenant.findUnique({ where: { id: auth.tenantId! } })
   const limit = tenant?.rateLimitPerMin ?? 60
   const rl = await checkRateLimit(auth.tenantId!, ip, limit)
+
+  const rateLimitHeaders: Record<string, string> = {
+    'X-RateLimit-Limit': String(rl.limit),
+    'X-RateLimit-Remaining': String(rl.remaining),
+    'X-RateLimit-Reset': String(Math.floor(rl.resetAt / 1000)),
+  }
+
   if (!rl.allowed) {
+    rateLimitHitsTotal.inc({ tenant_id: auth.tenantId! })
+    const retryAfter = Math.ceil((rl.resetAt - Date.now()) / 1000)
     return {
       ok: false,
       response: NextResponse.json(
@@ -353,12 +383,18 @@ export async function requireApiKey(
           success: false,
           error: 'Rate limit exceeded',
           code: 'RATE_LIMITED',
-          retryAfter: Math.ceil((rl.resetAt - Date.now()) / 1000),
+          retryAfter,
         },
-        { status: 429, headers: { 'Retry-After': String(Math.ceil((rl.resetAt - Date.now()) / 1000)) } },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(retryAfter),
+            ...rateLimitHeaders,
+          },
+        },
       ),
     }
   }
 
-  return { ok: true, auth, ip }
+  return { ok: true, auth, ip, rateLimitHeaders }
 }
