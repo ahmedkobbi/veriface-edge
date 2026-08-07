@@ -164,7 +164,11 @@ export function sha256Hex(input: string | Uint8Array): string {
 }
 
 export function hmacSha256Hex(key: Uint8Array, message: string): string {
-  return blake3Hex(hex.encode(key) + '|' + message)
+  // Real HMAC-SHA256 (RFC 2104) — NOT a plain hash.
+  // Uses @noble/hashes hmac + sha256 for proper inner/outer pad construction.
+  const h = hmac.create(sha256, key)
+  h.update(utf8.encode(message))
+  return hex.encode(h.digest())
 }
 
 export function constantTimeEqual(a: string, b: string): boolean {

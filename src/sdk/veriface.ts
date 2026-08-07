@@ -405,7 +405,7 @@ export class VeriFace {
             }
 
             // Issue strobe challenge at random intervals
-            if (!pendingStrobe && Math.random() < 0.04) {
+            if (!pendingStrobe && (crypto.getRandomValues(new Uint8Array(1))[0] / 256) < 0.04) {
               this.strobeProbe.issueChallenge()
               strobeChallenges++
               pendingStrobe = true

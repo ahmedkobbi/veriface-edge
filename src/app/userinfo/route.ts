@@ -10,6 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { getServerSigningKey } from '@/lib/config'
 import { db } from '@/lib/db'
 import { ed25519Verify, utf8, type Ed25519KeyPair, ed25519Generate } from '@/lib/crypto-server'
 

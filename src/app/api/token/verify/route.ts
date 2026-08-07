@@ -13,6 +13,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { getServerSigningKey } from '@/lib/config'
 import { db } from '@/lib/db'
 import { requireApiKey } from '@/lib/auth'
 import { appendAudit } from '@/lib/audit'

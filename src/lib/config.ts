@@ -41,7 +41,7 @@ export function getServerSigningKey(): Ed25519KeyPair {
     return serverKeyPair
   }
 
-  // Development fallback: generate ephemeral key
+  // Development fallback: generate ephemeral key with LOUD warning
   if (process.env.NODE_ENV === 'production') {
     throw new Error(
       'VERIFACE_SERVER_SIGNING_KEY environment variable is required in production. ' +
@@ -49,9 +49,17 @@ export function getServerSigningKey(): Ed25519KeyPair {
     )
   }
 
+  // In development, refuse to start if explicit dev key not set
+  if (!process.env.VERIFACE_ALLOW_INSECURE_DEV) {
+    throw new Error(
+      'VERIFACE_SERVER_SIGNING_KEY is not set. For development, set VERIFACE_ALLOW_INSECURE_DEV=1 to allow ephemeral keys. ' +
+      'For production, set VERIFACE_SERVER_SIGNING_KEY to a 64-hex-char Ed25519 private key.'
+    )
+  }
+
   console.warn(
-    '[VeriFace] WARNING: VERIFACE_SERVER_SIGNING_KEY not set — using ephemeral key. ' +
-    'Tokens will not survive server restart. Set this in production!'
+    '[VeriFace] ⚠️  WARNING: VERIFACE_SERVER_SIGNING_KEY not set — using ephemeral key. ' +
+    'Tokens will not survive server restart. Set VERIFACE_ALLOW_INSECURE_DEV=0 and provide a real key.'
   )
   serverKeyPair = ed25519Generate()
   return serverKeyPair

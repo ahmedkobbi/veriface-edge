@@ -234,10 +234,12 @@ export class MicroStrobeProbe {
   }> = []
 
   issueChallenge(): { intensity: number; nonce: number } {
+    // Use cryptographically secure random for nonces (CWE-338 fix)
+    const randomValues = crypto.getRandomValues(new Uint32Array(2))
     const challenge = {
       issuedAt: performance.now(),
-      intensity: 200 + Math.random() * 55, // 200-255 (sub-perceptible when brief)
-      nonce: Math.floor(Math.random() * 0xffffffff),
+      intensity: 200 + (randomValues[0] / 0xffffffff) * 55, // 200-255 (sub-perceptible when brief)
+      nonce: randomValues[1],
     }
     this.pendingChallenges.push(challenge)
     if (this.pendingChallenges.length > 5) this.pendingChallenges.shift()
@@ -351,7 +353,7 @@ export class HeartbeatMonitor {
 
   computeBeat(): string {
     const ts = Math.floor(Date.now() / 100) // 100ms granularity
-    const beat = hmacSha256Hex(this.secret, ts.toString())
+    const beat = realHmacSha256Hex(this.secret, ts.toString())
     this.expected = beat
     this.lastBeat = Date.now()
     return beat
@@ -364,15 +366,8 @@ export class HeartbeatMonitor {
   }
 }
 
-// Tiny in-file HMAC (avoids circular import with crypto.ts)
-function hmacSha256Hex(key: Uint8Array, message: string): string {
-  // Use Web Crypto API for HMAC since we're in browser context
-  // and need a synchronous-ish API for the heartbeat. Fall back to
-  // a simple hash combine for demo purposes — production would
-  // dispatch to worker with async HMAC.
-  // Here we use blake3 with key prefix as a stand-in.
-  return blake3Hex(hex.encode(key) + '|' + message)
-}
+// Import real HMAC from crypto.ts (avoids the fake blake3-based HMAC)
+import { hmacSha256Hex as realHmacSha256Hex } from './crypto'
 
 // ---------------------------------------------------------------------------
 // 1.5.6 — Hardware Attestation (best-effort in browser)

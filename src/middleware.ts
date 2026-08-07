@@ -15,7 +15,7 @@ import { NextRequest, NextResponse } from 'next/server'
 const SECURITY_HEADERS: Record<string, string> = {
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
-  'X-XSS-Protection': '1; mode=block',
+  // X-XSS-Protection removed — deprecated since Chrome 2019, can introduce vulns
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'Permissions-Policy': 'camera=(self), microphone=(), geolocation=(), payment=()',
   'Cross-Origin-Opener-Policy': 'same-origin',
@@ -23,6 +23,23 @@ const SECURITY_HEADERS: Record<string, string> = {
   'Cross-Origin-Resource-Policy': 'same-origin',
   'X-DNS-Prefetch-Control': 'off',
   'X-Permitted-Cross-Domain-Policies': 'none',
+  // Content-Security-Policy — strict, allows only self + known CDN origins
+  'Content-Security-Policy': [
+    "default-src 'self'",
+    "script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline' https://cdn.jsdelivr.net",
+    "connect-src 'self' https: wss:",
+    "img-src 'self' data: blob: https:",
+    "media-src 'self' blob:",
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self' data:",
+    "worker-src 'self' blob:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+    "require-trusted-types-for 'script'",
+    "trusted-types default",
+  ].join('; '),
 }
 
 const ALLOWED_ORIGINS = (process.env.VERIFACE_ALLOWED_ORIGINS ?? '*').split(',').map((s) => s.trim())

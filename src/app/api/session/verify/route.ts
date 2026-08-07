@@ -15,6 +15,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { getServerSigningKey } from '@/lib/config'
 import { db } from '@/lib/db'
 import {
   hex,
@@ -397,10 +398,3 @@ async function verifyJwtSignature(
 // In production: this would be loaded from a KMS-backed secret.
 // ---------------------------------------------------------------------------
 
-let serverKeyPair: Ed25519KeyPair | null = null
-
-function getServerSigningKey(): Ed25519KeyPair {
-  if (serverKeyPair) return serverKeyPair
-  serverKeyPair = ed25519Generate()
-  return serverKeyPair
-}

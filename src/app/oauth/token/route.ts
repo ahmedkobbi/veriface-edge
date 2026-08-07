@@ -25,6 +25,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { getServerSigningKey } from '@/lib/config'
 import { db } from '@/lib/db'
 import { ed25519Generate, type Ed25519KeyPair } from '@/lib/crypto-server'
 import { signJwt } from '@/lib/jwt-server'

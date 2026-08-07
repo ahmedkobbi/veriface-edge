@@ -248,10 +248,14 @@ export function verifyCommitment(
 // ---------------------------------------------------------------------------
 
 export function constantTimeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false
+  // To avoid leaking length information, hash both inputs to equal-length
+  // digests before comparing. SHA-256 produces 64 hex chars regardless of input.
+  const hashA = sha256Hex(a)
+  const hashB = sha256Hex(b)
+  if (hashA.length !== hashB.length) return false  // Always equal for SHA-256
   let diff = 0
-  for (let i = 0; i < a.length; i++) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  for (let i = 0; i < hashA.length; i++) {
+    diff |= hashA.charCodeAt(i) ^ hashB.charCodeAt(i)
   }
   return diff === 0
 }
