@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { ShieldCheck, ShieldAlert, Camera, Clock, Repeat, Puzzle, Cpu, Zap } from 'lucide-react'
 import type { AntiInjectionReport } from '@/sdk/anti-injection'
+import { GlassSurface, GlassBadge } from '@/components/premium/Glass'
 
 interface AntiInjectionPanelProps {
   report: AntiInjectionReport | null
@@ -76,30 +77,22 @@ export function AntiInjectionPanel({ report, liveStatus }: AntiInjectionPanelPro
       ]
 
   return (
-    <Card className="bg-slate-900/50 border-slate-800">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-medium text-slate-200 flex items-center justify-between">
-          <span>Anti-Injection Defense</span>
+    <GlassSurface blur="xl" opacity="medium" className="rounded-2xl">
+      <div className="p-4">
+        <div className="pb-3 flex items-center justify-between">
+          <span className="text-sm font-medium text-slate-200">Anti-Injection Defense</span>
           {report && (
-            <Badge
-              variant="outline"
-              className={
-                report.passed
-                  ? 'bg-emerald-950/50 text-emerald-300 border-emerald-700'
-                  : 'bg-red-950/50 text-red-300 border-red-700'
-              }
-            >
+            <GlassBadge variant={report.passed ? 'success' : 'error'}>
               {report.passed ? (
                 <ShieldCheck className="w-3 h-3 mr-1" />
               ) : (
                 <ShieldAlert className="w-3 h-3 mr-1" />
               )}
               {report.passed ? 'SECURE' : 'BREACH'}
-            </Badge>
+            </GlassBadge>
           )}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-2">
+        </div>
+        <div className="space-y-2">
         {layers.map((l) => {
           const Icon = l.icon
           const colors = {
@@ -122,7 +115,8 @@ export function AntiInjectionPanel({ report, liveStatus }: AntiInjectionPanelPro
             </div>
           )
         })}
-      </CardContent>
-    </Card>
+        </div>
+      </div>
+    </GlassSurface>
   )
 }

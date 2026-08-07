@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { ShieldCheck, ShieldAlert, RefreshCw } from 'lucide-react'
+import { GlassSurface, GlassBadge } from '@/components/premium/Glass'
 
 interface AuditEntry {
   id: string
@@ -74,27 +75,20 @@ export function AuditLogPanel({ tenantId, apiKey, refreshKey }: AuditLogPanelPro
   }, [tenantId, apiKey, refreshKey])
 
   return (
-    <Card className="bg-slate-900/50 border-slate-800">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-medium text-slate-200 flex items-center justify-between">
-          <span>Hash-Chained Audit Log</span>
+    <GlassSurface blur="xl" opacity="medium" className="rounded-2xl">
+      <div className="p-4">
+        <div className="pb-3 flex items-center justify-between">
+          <span className="text-sm font-medium text-slate-200">Hash-Chained Audit Log</span>
           <div className="flex items-center gap-2">
             {chainValid !== null && (
-              <Badge
-                variant="outline"
-                className={
-                  chainValid
-                    ? 'bg-emerald-950/50 text-emerald-300 border-emerald-700'
-                    : 'bg-red-950/50 text-red-300 border-red-700'
-                }
-              >
+              <GlassBadge variant={chainValid ? 'success' : 'error'}>
                 {chainValid ? (
                   <ShieldCheck className="w-3 h-3 mr-1" />
                 ) : (
                   <ShieldAlert className="w-3 h-3 mr-1" />
                 )}
                 {chainValid ? 'CHAIN INTACT' : 'CHAIN BROKEN'}
-              </Badge>
+              </GlassBadge>
             )}
             <Button
               size="sm"
@@ -106,9 +100,7 @@ export function AuditLogPanel({ tenantId, apiKey, refreshKey }: AuditLogPanelPro
               <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
             </Button>
           </div>
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
+        </div>
         <ScrollArea className="h-72 pr-3">
           {entries.length === 0 ? (
             <p className="text-xs text-slate-500 text-center py-8">
@@ -166,7 +158,7 @@ export function AuditLogPanel({ tenantId, apiKey, refreshKey }: AuditLogPanelPro
             </div>
           )}
         </ScrollArea>
-      </CardContent>
-    </Card>
+      </div>
+    </GlassSurface>
   )
 }

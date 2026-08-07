@@ -1,0 +1,16 @@
+{
+  "name": "veriface-websocket",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot index.ts",
+    "start": "bun index.ts"
+  },
+  "dependencies": {
+    "socket.io": "^4.8.3",
+    "@noble/curves": "^2.3.0",
+    "@noble/hashes": "^2.3.0",
+    "@noble/ciphers": "^2.2.0"
+  }
+}

@@ -15,6 +15,7 @@ import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
 import { Heart, Activity, Layers, Box } from 'lucide-react'
 import type { VeriFaceLivenessReport } from '@/sdk/veriface'
+import { GlassSurface, GlassBadge } from '@/components/premium/Glass'
 
 interface LivenessPanelProps {
   liveness: VeriFaceLivenessReport | null
@@ -65,25 +66,17 @@ export function LivenessPanel({ liveness, threshold }: LivenessPanelProps) {
       ]
 
   return (
-    <Card className="bg-slate-900/50 border-slate-800">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-medium text-slate-200 flex items-center justify-between">
-          <span>Passive Liveness Signals</span>
+    <GlassSurface blur="xl" opacity="medium" className="rounded-2xl">
+      <div className="p-4">
+        <div className="pb-3 flex items-center justify-between">
+          <span className="text-sm font-medium text-slate-200">Passive Liveness Signals</span>
           {liveness && (
-            <Badge
-              variant="outline"
-              className={
-                liveness.overall >= threshold
-                  ? 'bg-emerald-950/50 text-emerald-300 border-emerald-700'
-                  : 'bg-red-950/50 text-red-300 border-red-700'
-              }
-            >
+            <GlassBadge variant={liveness.overall >= threshold ? 'success' : 'error'}>
               {liveness.overall >= threshold ? 'PASS' : 'FAIL'}
-            </Badge>
+            </GlassBadge>
           )}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
+        </div>
+        <div className="space-y-3">
         {scores.map((s) => {
           const Icon = s.icon
           return (
@@ -105,7 +98,8 @@ export function LivenessPanel({ liveness, threshold }: LivenessPanelProps) {
             </div>
           )
         })}
-      </CardContent>
-    </Card>
+        </div>
+      </div>
+    </GlassSurface>
   )
 }
