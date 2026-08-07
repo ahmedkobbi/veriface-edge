@@ -10,8 +10,9 @@ import {
 } from '@/components/brand/Icons'
 import { AuthPage } from '@/components/auth/AuthPage'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { FraudScoreModule, AccessPoliciesModule, WebhookDeliveryModule, BrandingModule, EmbedCodeModule, StatusPage } from '@/components/admin/AdvancedModules'
 
-type AdminTab = 'dashboard' | 'usage' | 'security' | 'templates' | 'analytics' | 'team' | 'integrations' | 'compliance' | 'developer' | 'settings'
+type AdminTab = 'dashboard' | 'usage' | 'security' | 'templates' | 'analytics' | 'team' | 'integrations' | 'compliance' | 'developer' | 'settings' | 'fraud' | 'policies' | 'webhooks' | 'branding' | 'embed' | 'status'
 
 interface PlatformUser {
   id: string; email: string; name: string | null; role: string
@@ -50,6 +51,12 @@ export function AdminPanel() {
     { id: 'compliance', label: 'Compliance', icon: <CheckCircleIcon className="w-3.5 h-3.5" /> },
     { id: 'developer', label: 'Developer', icon: <KeyIcon className="w-3.5 h-3.5" /> },
     { id: 'settings', label: 'Settings', icon: <SettingsIcon className="w-3.5 h-3.5" /> },
+    { id: 'fraud', label: 'Fraud Score', icon: <ShieldLockIcon className="w-3.5 h-3.5" /> },
+    { id: 'policies', label: 'Access Policies', icon: <LockIcon className="w-3.5 h-3.5" /> },
+    { id: 'webhooks', label: 'Webhook Log', icon: <RadioIcon className="w-3.5 h-3.5" /> },
+    { id: 'branding', label: 'Branding', icon: <CpuIcon className="w-3.5 h-3.5" /> },
+    { id: 'embed', label: 'Embed Code', icon: <CopyIcon className="w-3.5 h-3.5" /> },
+    { id: 'status', label: 'Status', icon: <ActivityIcon className="w-3.5 h-3.5" /> },
   ]
 
   return (
@@ -85,6 +92,12 @@ export function AdminPanel() {
       {tab === 'compliance' && <ComplianceTab tenantId={user.tenantId} userRole={user.role} />}
       {tab === 'developer' && <DeveloperTab tenantId={user.tenantId} />}
       {tab === 'settings' && <SettingsTab tenantId={user.tenantId} userRole={user.role} />}
+      {tab === 'fraud' && <FraudScoreModule tenantId={user.tenantId} />}
+      {tab === 'policies' && <AccessPoliciesModule tenantId={user.tenantId} userRole={user.role} />}
+      {tab === 'webhooks' && <WebhookDeliveryModule tenantId={user.tenantId} />}
+      {tab === 'branding' && <BrandingModule tenantId={user.tenantId} userRole={user.role} />}
+      {tab === 'embed' && <EmbedCodeModule tenantId={user.tenantId} />}
+      {tab === 'status' && <StatusPage />}
     </div>
   )
 }

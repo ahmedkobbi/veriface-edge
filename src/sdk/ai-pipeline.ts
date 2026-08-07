@@ -93,6 +93,13 @@ export async function detectFace(
     return null
   }
 
+  // Multi-face rejection: if more than one face is detected, reject
+  // for security (prevents group photo attacks, shoulder-surfing with
+  // a second face in frame, etc.)
+  if (result.faceLandmarks.length > 1) {
+    throw new Error('MULTIPLE_FACES_DETECTED')
+  }
+
   // Take primary face (first result)
   const landmarks = result.faceLandmarks[0]
   // Compute bounding box from landmarks
