@@ -1,0 +1,127 @@
+# VeriFace Edge — Prometheus Alerting Rules
+#
+# Deploy with:
+#   prometheus --config.file=prometheus.yml
+#
+# In prometheus.yml:
+#   rule_files:
+#     - /etc/prometheus/rules/veriface-alerts.yml
+
+groups:
+  - name: veriface-security
+    interval: 30s
+    rules:
+      # Critical: auth success rate drops below 95%
+      - alert: VeriFaceLowAuthSuccessRate
+        expr: |
+          sum(rate(veriface_auth_attempts_total{outcome="success"}[5m]))
+          / sum(rate(veriface_auth_attempts_total[5m])) * 100 < 95
+        for: 5m
+        labels:
+          severity: warning
+          service: veriface
+        annotations:
+          summary: "Auth success rate below 95%"
+          description: "Authentication success rate is {{ $value }}% (threshold: 95%)"
+
+      # Critical: injection attempts detected
+      - alert: VeriFaceInjectionDetected
+        expr: rate(veriface_injection_suspected_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          service: veriface
+        annotations:
+          summary: "Anti-injection defense triggered"
+          description: "{{ $value }} injection attempts per second"
+
+      # Critical: API key auth failures spike (brute force)
+      - alert: VeriFaceApiKeyBruteForce
+        expr: |
+          sum(rate(veriface_apikey_auth_attempts_total{outcome!="success"}[5m])) > 10
+        for: 5m
+        labels:
+          severity: critical
+          service: veriface
+        annotations:
+          summary: "API key brute force attack detected"
+          description: "{{ $value }} auth failures per second"
+
+      # Warning: rate limit hits spike
+      - alert: VeriFaceHighRateLimitHits
+        expr: rate(veriface_rate_limit_hits_total[5m]) > 5
+        for: 10m
+        labels:
+          severity: warning
+          service: veriface
+        annotations:
+          summary: "High rate limit hit rate"
+          description: "{{ $value }} rate-limited requests per second"
+
+  - name: veriface-availability
+    interval: 30s
+    rules:
+      # Critical: service down
+      - alert: VeriFaceServiceDown
+        expr: up{job="veriface"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: veriface
+        annotations:
+          summary: "VeriFace service is down"
+          description: "Instance {{ $labels.instance }} is unreachable"
+
+      # Warning: high error rate
+      - alert: VeriFaceHighErrorRate
+        expr: |
+          sum(rate(veriface_http_requests_total{status=~"5.."}[5m]))
+          / sum(rate(veriface_http_requests_total[5m])) * 100 > 1
+        for: 5m
+        labels:
+          severity: warning
+          service: veriface
+        annotations:
+          summary: "High 5xx error rate"
+          description: "{{ $value }}% of requests are failing with 5xx"
+
+      # Warning: slow responses
+      - alert: VeriFaceSlowResponses
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(veriface_http_request_duration_seconds_bucket[5m])) by (le)
+          ) > 1
+        for: 10m
+        labels:
+          severity: warning
+          service: veriface
+        annotations:
+          summary: "Slow response times"
+          description: "p95 latency is {{ $value }}s (threshold: 1s)"
+
+  - name: veriface-webhooks
+    interval: 30s
+    rules:
+      # Warning: webhook delivery failures
+      - alert: VeriFaceWebhookFailures
+        expr: |
+          sum(rate(veriface_webhook_deliveries_total{outcome="failed"}[5m]))
+          / sum(rate(veriface_webhook_deliveries_total[5m])) * 100 > 10
+        for: 10m
+        labels:
+          severity: warning
+          service: veriface
+        annotations:
+          summary: "Webhook delivery failure rate high"
+          description: "{{ $value }}% of webhook deliveries are failing"
+
+      # Critical: webhook dead-letter queue growing
+      - alert: VeriFaceWebhookDeadLetters
+        expr: increase(veriface_webhook_deliveries_total{outcome="dead_lettered"}[1h]) > 10
+        for: 5m
+        labels:
+          severity: critical
+          service: veriface
+        annotations:
+          summary: "Webhook dead-letter queue growing"
+          description: "{{ $value }} webhooks dead-lettered in the last hour"
