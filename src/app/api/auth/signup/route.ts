@@ -44,6 +44,22 @@ export async function POST(req: NextRequest) {
     // Create user + tenant + API key
     const result = await createPlatformUserWithTenant({ email, password, name })
 
+    // Generate email verification token + send email
+    const { secureRandomHex } = await import('@/lib/crypto-server')
+    const { sendVerificationEmail } = await import('@/lib/email')
+    const verifyToken = secureRandomHex(32)
+    await db.emailVerificationToken.create({
+      data: {
+        userId: result.user.id,
+        token: verifyToken,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24h
+      },
+    })
+    // Send verification email (non-blocking — don't fail signup if email fails)
+    sendVerificationEmail(result.user.email, verifyToken, name).catch((e) => {
+      logger.error({ error: e }, 'Failed to send verification email during signup')
+    })
+
     // Issue session token
     const token = await createSessionToken(result.user.id, result.user.email, result.tenant.id)
 

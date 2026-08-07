@@ -284,9 +284,43 @@ model PlatformUser {
   updatedAt     DateTime @updatedAt
 
   tenant        Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  emailVerifTokens EmailVerificationToken[]
+  passwordResetTokens PasswordResetToken[]
 
   @@index([email])
   @@index([tenantId])
+}
+
+/// Email verification tokens — single-use, expire after 24h.
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user PlatformUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+}
+
+/// Password reset tokens — single-use, expire after 1h.
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user PlatformUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
 }
 
 /// Rate limit bucket (per tenant + IP). Reset every minute.
