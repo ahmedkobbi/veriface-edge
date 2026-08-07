@@ -16,6 +16,7 @@ import { db } from '@/lib/db'
 import { requireApiKey } from '@/lib/auth'
 import { appendAudit } from '@/lib/audit'
 import { ed25519Generate } from '@/lib/crypto-server'
+import { safeErrorResponse } from '@/lib/config'
 import { logger } from '@/lib/logger'
 
 export async function POST(req: NextRequest) {
@@ -61,14 +62,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       signingPubKey: Buffer.from(newKeypair.publicKey).toString('hex'),
-      signingPrivateKey: Buffer.from(newKeypair.privateKey).toString('hex'),
-      warning: 'Store the new signingPrivateKey securely. Update your client SDK config. Old key remains valid for 24h.',
-      oldKeyValidUntil: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      warning: 'Signing key rotated. The private key is held server-side only. Old key is immediately invalid.',
+      oldKeyValidUntil: new Date().toISOString(),
     })
   } catch (e) {
     logger.error({ error: e }, 'Key rotation failed')
     return NextResponse.json(
-      { success: false, error: e instanceof Error ? e.message : 'Unknown error' },
+      safeErrorResponse(e),
       { status: 500 },
     )
   }

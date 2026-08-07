@@ -22,12 +22,6 @@ import { ed25519Generate } from '@/lib/crypto-server'
 
 // Reuse the server's signing keypair (singleton from session/verify route).
 // In production: this would be loaded from KMS.
-let serverKeyPair: Ed25519KeyPair | null = null
-function getServerSigningKey(): Ed25519KeyPair {
-  if (serverKeyPair) return serverKeyPair
-  serverKeyPair = ed25519Generate()
-  return serverKeyPair
-}
 
 function base64urlDecode(s: string): Uint8Array {
   let padded = s.replace(/-/g, '+').replace(/_/g, '/')

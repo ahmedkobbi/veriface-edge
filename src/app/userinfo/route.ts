@@ -14,12 +14,6 @@ import { getServerSigningKey } from '@/lib/config'
 import { db } from '@/lib/db'
 import { ed25519Verify, utf8, type Ed25519KeyPair, ed25519Generate } from '@/lib/crypto-server'
 
-let serverKeyPair: Ed25519KeyPair | null = null
-function getServerSigningKey(): Ed25519KeyPair {
-  if (serverKeyPair) return serverKeyPair
-  serverKeyPair = ed25519Generate()
-  return serverKeyPair
-}
 
 function base64urlDecode(s: string): Uint8Array {
   let padded = s.replace(/-/g, '+').replace(/_/g, '/')

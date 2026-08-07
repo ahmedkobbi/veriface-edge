@@ -3,21 +3,36 @@
  * Cron job endpoint: expire stale pending sessions and clean up expired
  * revocation entries. Should be called every minute.
  *
- * No authentication required — protected by IP allowlist in production
- * (or restricted to internal cron only).
+ * SECURITY: Requires CRON_SECRET header. Fail-closed — refuses if secret
+ * is not configured or doesn't match.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { appendAudit } from '@/lib/audit'
+import { logger } from '@/lib/logger'
 
-export async function POST(_req: NextRequest) {
+export async function POST(req: NextRequest) {
+  // Fail-closed authentication
+  const cronSecret = req.headers.get('x-cron-secret')
+  const expectedSecret = process.env.CRON_SECRET
+
+  if (!expectedSecret) {
+    logger.error('CRON_SECRET not set — refusing to run session cleanup')
+    return NextResponse.json(
+      { success: false, error: 'Cron secret not configured' },
+      { status: 503 },
+    )
+  }
+
+  if (cronSecret !== expectedSecret) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+  }
+
   const now = new Date()
   let expiredSessions = 0
   let cleanedRevocations = 0
 
   try {
-    // Expire pending sessions past their expiry
     const result = await db.session.updateMany({
       where: {
         state: 'pending',
@@ -27,26 +42,12 @@ export async function POST(_req: NextRequest) {
     })
     expiredSessions = result.count
 
-    // Clean up expired revocation entries (token has naturally expired,
-    // revocation record no longer needed)
     const revokedCleanup = await db.revokedToken.deleteMany({
       where: { expiresAt: { lt: now } },
     })
     cleanedRevocations = revokedCleanup.count
 
-    if (expiredSessions > 0) {
-      // Log aggregate cleanup (don't create per-session audit entries — too noisy)
-      await db.auditLog.create({
-        data: {
-          tenantId: 'system',
-          eventType: 'session.cleanup',
-          payload: JSON.stringify({ expiredSessions, cleanedRevocations, ts: now.toISOString() }),
-          prevHash: 'system',
-          thisHash: 'system-cleanup-' + now.getTime(),
-          chainIndex: 0,
-        },
-      }).catch(() => {})  // Don't fail if system tenant doesn't exist
-    }
+    logger.info({ expiredSessions, cleanedRevocations }, 'Session cleanup completed')
 
     return NextResponse.json({
       success: true,
@@ -55,8 +56,9 @@ export async function POST(_req: NextRequest) {
       timestamp: now.toISOString(),
     })
   } catch (e) {
+    logger.error({ error: e }, 'Session cleanup failed')
     return NextResponse.json(
-      { success: false, error: e instanceof Error ? e.message : 'Unknown error' },
+      { success: false, error: 'Cleanup failed' },
       { status: 500 },
     )
   }

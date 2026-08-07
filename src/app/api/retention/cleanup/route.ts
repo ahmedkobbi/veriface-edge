@@ -28,11 +28,19 @@ const RETENTION = {
 }
 
 export async function POST(req: NextRequest) {
-  // IP-based auth or shared secret (cron jobs don't have API keys)
+  // Fail-closed authentication — require CRON_SECRET
   const cronSecret = req.headers.get('x-cron-secret')
   const expectedSecret = process.env.CRON_SECRET
 
-  if (expectedSecret && cronSecret !== expectedSecret) {
+  if (!expectedSecret) {
+    logger.error('CRON_SECRET not set — refusing to run retention cleanup')
+    return NextResponse.json(
+      { success: false, error: 'Cron secret not configured' },
+      { status: 503 },
+    )
+  }
+
+  if (cronSecret !== expectedSecret) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
   }
 

@@ -30,12 +30,6 @@ import { db } from '@/lib/db'
 import { ed25519Generate, type Ed25519KeyPair } from '@/lib/crypto-server'
 import { signJwt } from '@/lib/jwt-server'
 
-let serverKeyPair: Ed25519KeyPair | null = null
-function getServerSigningKey(): Ed25519KeyPair {
-  if (serverKeyPair) return serverKeyPair
-  serverKeyPair = ed25519Generate()
-  return serverKeyPair
-}
 
 const ISSUER = process.env.OIDC_ISSUER ?? 'http://localhost:3000'
 

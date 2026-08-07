@@ -120,6 +120,9 @@ export function middleware(req: NextRequest) {
 export const config = {
   matcher: [
     '/api/:path*',
+    '/userinfo',
+    '/oauth/:path*',
+    '/.well-known/:path*',
     '/',
   ],
 }
