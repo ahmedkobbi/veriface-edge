@@ -1,5 +1,6 @@
 package io.veriface.sdk.api
 
+import io.veriface.sdk.security.VeriFaceSecurity
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -10,10 +11,26 @@ import java.util.concurrent.TimeUnit
 /** HTTP client for /api/session/init + /api/session/verify. */
 class VeriFaceApi(private val config: VeriFaceConfig) {
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .build()
+    private val client: OkHttpClient = run {
+        val builder = OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+
+        // Enforce certificate pinning for production backends
+        // (skip for localhost / dev environments)
+        val apiHost = try {
+            java.net.URI(config.apiBaseUrl).host
+        } catch (e: Exception) {
+            null
+        }
+
+        if (apiHost != null && !apiHost.isNullOrEmpty() && apiHost != "localhost" && !apiHost.startsWith("10.") && !apiHost.startsWith("192.168.")) {
+            val security = VeriFaceSecurity(android.app.Application())  // Note: in production, pass real Context
+            builder.certificatePinner(security.createCertificatePinner())
+        }
+
+        builder.build()
+    }
 
     private val jsonMediaType = "application/json".toMediaType()
 

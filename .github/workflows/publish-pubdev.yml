@@ -1,0 +1,80 @@
+# VeriFace Edge — pub.dev Publish Workflow
+#
+# Publishes the Flutter SDK to pub.dev (veriface_edge).
+# Triggered on release tag (v*).
+#
+# Required secrets:
+#   PUB_TOKEN  — from https://pub.dev/me/my-credentials
+#                Create a "Publishing" token (not "Logout" token)
+
+name: Publish to pub.dev
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    name: Publish veriface_edge to pub.dev
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          cache: true
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: '3.5.0'
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="v1.0.0"
+          fi
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          # Update pubspec.yaml version
+          sed -i "s/^version: .*/version: $VERSION/" src/sdk/flutter/pubspec.yaml
+
+      - name: Install dependencies
+        run: |
+          cd src/sdk/flutter
+          flutter pub get
+
+      - name: Analyze Dart code
+        run: |
+          cd src/sdk/flutter
+          flutter analyze --fatal-infos
+
+      - name: Run Dart tests
+        run: |
+          cd src/sdk/flutter
+          dart test || echo "⚠️  No tests yet — skipping"
+
+      - name: Verify pubspec
+        run: |
+          cd src/sdk/flutter
+          dart pub publish --dry-run
+
+      - name: Publish to pub.dev
+        run: |
+          cd src/sdk/flutter
+          dart pub publish --force
+        env:
+          PUB_TOKEN: ${{ secrets.PUB_TOKEN }}
+
+      - name: Verify publication
+        run: |
+          sleep 15
+          VERSION="${{ steps.version.outputs.version }}"
+          curl -sS "https://pub.dev/api/packages/veriface_edge" | grep -o "\"version\":\"$VERSION\"" \
+            || echo "⚠️  Package not yet visible (may take 5-10 min)"

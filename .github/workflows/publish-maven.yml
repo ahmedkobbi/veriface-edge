@@ -1,0 +1,95 @@
+# VeriFace Edge — Maven Central Publish Workflow
+#
+# Publishes the Android SDK to Maven Central (io.veriface:edge-sdk-android).
+# Triggered on release tag (v*).
+#
+# Required secrets (see https://central.sonatype.org/publish/publish-portal-guide/):
+#   MAVEN_USERNAME       — Maven Central Portal username (e.g., ahmedkobbi)
+#   MAVEN_PASSWORD       — Maven Central Portal password
+#   MAVEN_GPG_KEY        — GPG private key (ASCII-armored, for signing)
+#   MAVEN_GPG_KEY_ID     — GPG key ID (e.g., 0123456789ABCDEF)
+#   MAVEN_GPG_PASSPHRASE — GPG key passphrase
+#
+# First-time setup: register a namespace at https://central.sonatype.com
+# Namespace: io.veriface (requires verifying you own the veriface.io domain
+# via a DNS TXT record, OR create a GitHub repo named io-veriface for verification).
+
+name: Publish to Maven Central
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish io.veriface:edge-sdk-android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v3
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="v1.0.0"
+          fi
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Update version in build.gradle.kts
+        run: |
+          sed -i "s/version = \"[^\"]*\"/version = \"${{ steps.version.outputs.version }}\"/" \
+            src/sdk/android/library/build.gradle.kts
+
+      - name: Import GPG key
+        run: |
+          echo "${{ secrets.MAVEN_GPG_KEY }}" | gpg --import --batch --passphrase "${{ secrets.MAVEN_GPG_PASSPHRASE }}"
+        env:
+          GNUPGHOME: /tmp/gnupg
+
+      - name: Build release AAR
+        run: |
+          cd src/sdk/android
+          ./gradlew :library:assembleRelease
+          ./gradlew :library:sourcesJar
+          ./gradlew :library:javadocJar
+
+      - name: Sign artifacts
+        run: |
+          cd src/sdk/android/library/build/outputs/aar
+          for f in *.aar; do
+            gpg --detach-sign --armor --passphrase "${{ secrets.MAVEN_GPG_PASSPHRASE }}" \
+              --local-user "${{ secrets.MAVEN_GPG_KEY_ID }}" "$f"
+          done
+
+      - name: Publish to Maven Central Portal
+        run: |
+          cd src/sdk/android
+          ./gradlew :library:publishToMavenCentralPortal
+        env:
+          MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.MAVEN_PASSWORD }}
+          MAVEN_GPG_KEY_ID: ${{ secrets.MAVEN_GPG_KEY_ID }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+
+      - name: Verify publication
+        run: |
+          sleep 30
+          VERSION="${{ steps.version.outputs.version }}"
+          curl -sS "https://repo1.maven.org/maven2/io/veriface/edge-sdk-android/$VERSION/edge-sdk-android-$VERSION.pom" | head -5 \
+            || echo "⚠️  Artifact not yet synced (Maven Central takes ~30 min after Portal approval)"

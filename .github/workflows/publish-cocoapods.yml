@@ -1,0 +1,62 @@
+# VeriFace Edge — CocoaPods Publish Workflow
+#
+# Publishes the iOS SDK to CocoaPods trunk.
+# Triggered on release tag (v*).
+#
+# Required secrets:
+#   COCOAPODS_TRUNK_TOKEN  — from `pod trunk register email@example.com`
+#                            Run locally once: pod trunk register your@email.com
+#                            Then copy the token from ~/.netrc
+
+name: Publish to CocoaPods
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    name: pod trunk push VeriFaceEdge.podspec
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install CocoaPods
+        run: gem install cocoapods
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="v1.0.0"
+          fi
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          # Update podspec version
+          sed -i.bak "s/s\.version.*=.*\"[^\"]*\"/s.version      = \"$VERSION\"/" src/sdk/react-native/VeriFaceEdge.podspec
+          rm -f src/sdk/react-native/VeriFaceEdge.podspec.bak
+
+      - name: Lint podspec
+        run: |
+          cd src/sdk/react-native
+          pod spec lint VeriFaceEdge.podspec --allow-warnings --skip-import-validation
+
+      - name: Push to CocoaPods trunk
+        run: |
+          cd src/sdk/react-native
+          pod trunk push VeriFaceEdge.podspec --allow-warnings --synchronous
+        env:
+          COCOAPODS_TRUNK_TOKEN: ${{ secrets.COCOAPODS_TRUNK_TOKEN }}
+
+      - name: Verify publication
+        run: |
+          sleep 15
+          pod search VeriFaceEdge || echo "⚠️  Pod not yet indexed (may take 5-10 min)"

@@ -39,7 +39,7 @@ class VeriFaceClient(
     private val api = VeriFaceApi(config)
     private val crypto = VeriFaceCrypto()
     private val camera = VeriFaceCamera(context)
-    private val pipeline = VeriFacePipeline()
+    private val pipeline = VeriFacePipeline().also { it.init(context) }
 
     /**
      * Run the full authentication/enrollment flow.

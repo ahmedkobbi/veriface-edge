@@ -1,0 +1,109 @@
+# VeriFace Edge — Android SDK Build & Test
+#
+# Builds the Kotlin library using Gradle on Ubuntu.
+# Runs unit tests + lint + assembles release AAR.
+
+name: Android SDK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/sdk/android/**'
+      - '.github/workflows/sdk-android.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/sdk/android/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build & Test (Android)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platforms;android-34
+            build-tools;34.0.0
+
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('src/sdk/android/**/*.gradle*', 'src/sdk/android/**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Verify Gradle wrapper
+        run: |
+          cd src/sdk/android
+          ls -la gradlew || (echo "❌ gradlew missing — run: gradle wrapper" && exit 1)
+          chmod +x gradlew
+
+      - name: Build debug AAR (compile check)
+        run: |
+          cd src/sdk/android
+          ./gradlew :library:assembleDebug --no-daemon --stacktrace
+
+      - name: Build release AAR
+        run: |
+          cd src/sdk/android
+          ./gradlew :library:assembleRelease --no-daemon --stacktrace
+
+      - name: Run unit tests
+        run: |
+          cd src/sdk/android
+          ./gradlew :library:testDebugUnitTest --no-daemon
+
+      - name: Run Android Lint
+        run: |
+          cd src/sdk/android
+          ./gradlew :library:lintDebug --no-daemon
+        continue-on-error: true  # Lint warnings shouldn't fail the build
+
+      - name: Generate Javadoc + sources JAR
+        run: |
+          cd src/sdk/android
+          ./gradlew :library:sourcesJar :library:javadocJar --no-daemon
+
+      - name: Verify AAR contents
+        run: |
+          cd src/sdk/android/library/build/outputs/aar
+          ls -la *.aar
+          for f in *.aar; do
+            echo "=== Contents of $f ==="
+            unzip -l "$f" | head -20
+          done
+
+      - name: Upload AAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: veriface-android-sdk
+          path: |
+            src/sdk/android/library/build/outputs/aar/*.aar
+            src/sdk/android/library/build/libs/*.jar
+          retention-days: 30
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: veriface-android-test-results
+          path: |
+            src/sdk/android/library/build/test-results/
+            src/sdk/android/library/build/reports/
+          retention-days: 14

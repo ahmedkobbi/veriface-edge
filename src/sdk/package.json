@@ -1,7 +1,7 @@
 {
   "name": "@veriface/edge-sdk",
   "version": "1.0.0",
-  "description": "Privacy-first web facial authentication SDK. All biometric computation runs in the browser via WebGPU/WASM.",
+  "description": "Privacy-first web facial authentication SDK. All biometric computation runs in the browser via WebGPU/WASM. Zero-knowledge Pedersen commitments, Ed25519/X25519/AES-256-GCM/BLAKE3 crypto, 6-layer anti-injection defense.",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -26,17 +26,25 @@
     "./crypto": {
       "import": "./dist/crypto.js",
       "types": "./dist/crypto.d.ts"
-    }
+    },
+    "./telemetry": {
+      "import": "./dist/telemetry.js",
+      "types": "./dist/telemetry.d.ts"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "PLATFORMS.md"
   ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
     "lint": "eslint src/",
-    "test": "bun test"
+    "test": "bun test",
+    "prepublishOnly": "bun run build",
+    "clean": "rm -rf dist node_modules"
   },
   "keywords": [
     "facial-authentication",
@@ -44,6 +52,8 @@
     "face-recognition",
     "liveness-detection",
     "rppg",
+    "presentation-attack-detection",
+    "pad",
     "webgpu",
     "wasm",
     "zero-knowledge",
@@ -51,9 +61,34 @@
     "fido2",
     "webauthn",
     "gdpr",
-    "bipa"
+    "bipa",
+    "ed25519",
+    "x25519",
+    "aes-gcm",
+    "blake3",
+    "pedersen-commitment",
+    "anti-injection"
   ],
-  "license": "Proprietary",
+  "license": "MIT",
+  "author": "ahmedkobbi <ahmedkobbi@users.noreply.github.com>",
+  "homepage": "https://github.com/ahmedkobbi/veriface-edge#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ahmedkobbi/veriface-edge.git",
+    "directory": "src/sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/ahmedkobbi/veriface-edge/issues"
+  },
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/ahmedkobbi"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "provenance": true
+  },
   "dependencies": {
     "@noble/curves": "^2.3.0",
     "@noble/hashes": "^2.3.0",
@@ -75,19 +110,28 @@
     "tsup": "^8.0.0",
     "typescript": "^5.0.0"
   },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "tsup": {
     "entry": {
       "index": "src/index.ts",
       "react": "src/react.ts",
       "vue": "src/vue.ts",
       "web-component": "src/web-component.ts",
-      "crypto": "src/crypto.ts"
+      "crypto": "src/crypto.ts",
+      "telemetry": "src/telemetry.ts"
     },
     "format": ["esm"],
     "dts": true,
     "splitting": true,
     "treeshake": true,
     "clean": true,
-    "external": ["react", "vue"]
+    "external": ["react", "vue"],
+    "target": "es2020",
+    "platform": "browser",
+    "footer": {
+      "js": "/* VeriFace Edge SDK v1.0.0 | MIT License | https://github.com/ahmedkobbi/veriface-edge */"
+    }
   }
 }
