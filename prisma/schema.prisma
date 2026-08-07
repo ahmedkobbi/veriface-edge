@@ -73,6 +73,9 @@ model Tenant {
   experiments Experiment[]
   experimentAssignments ExperimentAssignment[]
   experimentOutcomes ExperimentOutcome[]
+  subscription   Subscription?
+  invoices       Invoice[]
+  payments       Payment[]
 
   @@index([active])
   @@index([planTier])
@@ -643,4 +646,139 @@ model ExperimentOutcome {
 
   @@index([experimentId, variant, outcome])
   @@index([assignmentId])
+}
+
+/// Stripe subscription — syncs with Stripe's subscription object.
+model Subscription {
+  id              String   @id @default(cuid())
+  tenantId        String   @unique
+  /// Stripe Customer ID (cus_...).
+  stripeCustomerId String?
+  /// Stripe Subscription ID (sub_...).
+  stripeSubscriptionId String?
+  /// Stripe Price ID (price_...).
+  stripePriceId   String?
+  /// Stripe Checkout Session ID (cs_...) for the initial purchase.
+  stripeCheckoutSessionId String?
+  /// Plan tier: 'developer' | 'growth' | 'enterprise'.
+  planTier        String   @default("developer")
+  /// Status: 'incomplete' | 'active' | 'past_due' | 'canceled' | 'unpaid'.
+  status          String   @default("incomplete")
+  /// Billing interval: 'month' | 'year'.
+  interval        String   @default("month")
+  /// Current period start.
+  currentPeriodStart DateTime?
+  /// Current period end.
+  currentPeriodEnd   DateTime?
+  /// Cancel at period end (true = will cancel, false = active).
+  cancelAtPeriodEnd Boolean @default(false)
+  /// Canceled at (timestamp).
+  canceledAt      DateTime?
+  /// Trial end (if applicable).
+  trialEnd        DateTime?
+  /// Monthly spending limit (USD) — billing alert fires when reached.
+  spendingLimitUsd Float  @default(100)
+  /// Alert threshold percentage (0–100).
+  alertThresholdPct Int   @default(80)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoices        Invoice[]
+  payments        Payment[]
+
+  @@index([tenantId])
+  @@index([stripeCustomerId])
+  @@index([status])
+}
+
+/// Invoice — tracks each billing period's invoice.
+model Invoice {
+  id              String   @id @default(cuid())
+  tenantId        String
+  subscriptionId  String
+  /// Stripe Invoice ID (in_...).
+  stripeInvoiceId String?
+  /// Invoice number (human-readable).
+  number          String?
+  /// Status: 'draft' | 'open' | 'paid' | 'uncollectible' | 'void'.
+  status          String   @default("draft")
+  /// Amount in cents (USD).
+  amountDue       Int      @default(0)
+  /// Amount paid in cents.
+  amountPaid      Int      @default(0)
+  /// Currency (3-letter ISO code).
+  currency        String   @default("usd")
+  /// Line items (JSON array).
+  lineItems       String?
+  /// Invoice PDF URL (from Stripe).
+  invoicePdf      String?
+  /// Hosted invoice URL (from Stripe).
+  hostedInvoiceUrl String?
+  /// Due date.
+  dueDate         DateTime?
+  /// Paid at.
+  paidAt          DateTime?
+  /// Period start.
+  periodStart     DateTime?
+  /// Period end.
+  periodEnd       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscription    Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  payments        Payment[]
+
+  @@index([tenantId])
+  @@index([subscriptionId])
+  @@index([status])
+}
+
+/// Payment — individual payment transaction (Stripe or NowPayments).
+model Payment {
+  id              String   @id @default(cuid())
+  tenantId        String
+  subscriptionId  String?
+  invoiceId       String?
+  /// Payment provider: 'stripe' | 'nowpayments'.
+  provider        String
+  /// Provider transaction ID (Stripe: pi_..., NowPayments: UUID).
+  providerPaymentId String?
+  /// Provider charge ID (Stripe: ch_...).
+  providerChargeId String?
+  /// Amount in cents (USD) or smallest currency unit.
+  amount          Int
+  /// Currency (3-letter ISO code or crypto symbol).
+  currency        String
+  /// Status: 'pending' | 'succeeded' | 'failed' | 'refunded' | 'canceled'.
+  status          String   @default("pending")
+  /// Payment method: 'card' | 'usdc' | 'btc' | 'eth' | etc.
+  paymentMethod   String?
+  /// For crypto: the wallet address that paid.
+  fromAddress     String?
+  /// For crypto: the wallet address that received.
+  toAddress       String?
+  /// For crypto: transaction hash on the blockchain.
+  txHash          String?
+  /// For crypto: confirmations count.
+  confirmations   Int?
+  /// Refund amount (if partially refunded).
+  refundedAmount  Int      @default(0)
+  /// Failure reason (if failed).
+  failureReason   String?
+  /// Provider metadata (JSON).
+  metadata        String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscription    Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  invoice         Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([subscriptionId])
+  @@index([invoiceId])
+  @@index([provider, status])
+  @@index([providerPaymentId])
 }
