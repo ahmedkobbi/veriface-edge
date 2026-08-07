@@ -25,11 +25,16 @@ import {
   ed25519Generate,
   type Ed25519KeyPair,
 } from '@/lib/crypto-server'
-import { getSessionForVerification, getSessionPrivateKey, completeSession, deriveSessionKey } from '@/lib/session'
+import { getSessionForVerification, getSessionPrivateKey, completeSession, deriveSessionKey, isSessionConsumed } from '@/lib/session'
 import { enrollTemplate, verifyTemplate } from '@/lib/tenant'
 import { appendAudit } from '@/lib/audit'
 import { enqueueWebhook } from '@/lib/webhook'
 import { signJwt } from '@/lib/jwt-server'
+import { requireApiKey } from '@/lib/auth'
+import { validateInput, SessionVerifySchema } from '@/lib/validation'
+import { extractIdempotencyKey, getIdempotentResponse, cacheIdempotentResponse } from '@/lib/idempotency'
+import { logger } from '@/lib/logger'
+import { authAttemptsTotal, enrollmentsTotal, cryptoOperationDurationSeconds, injectionSuspectedTotal } from '@/lib/metrics'
 
 interface VerifyPayload {
   sessionId: string
@@ -70,11 +75,43 @@ const LIVENESS_THRESHOLD = 0.78
 const COSINE_THRESHOLD = 0.62
 
 export async function POST(req: NextRequest) {
+  const startTime = Date.now()
   const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
 
+  // API key authentication
+  const authResult = await requireApiKey(req, 'session:verify')
+  if (!authResult.ok) return authResult.response
+  const tenantId = authResult.auth.tenantId!
+
+  // Idempotency check
+  const idempotencyKey = extractIdempotencyKey(req)
+  if (idempotencyKey) {
+    const cached = getIdempotentResponse(tenantId, '/api/session/verify', idempotencyKey)
+    if (cached) {
+      logger.info({ tenantId, idempotencyKey }, 'Returning cached idempotent response')
+      return NextResponse.json(cached.body, { status: cached.status })
+    }
+  }
+
   try {
-    const body: VerifyPayload = await req.json()
-    const { sessionId, tenantId, jwt, sdkPubKey, encryptedEmbedding, commitment, commitmentNonce, liveness, antiInjection, externalUserId } = body
+    const rawBody = await req.json()
+
+    // Validate input with Zod
+    const validation = validateInput(SessionVerifySchema, rawBody)
+    if (!validation.success) {
+      return NextResponse.json({ success: false, error: validation.error, code: 'INVALID_INPUT' }, { status: 400 })
+    }
+    const body = validation.data as unknown as VerifyPayload
+    const { sessionId, jwt, sdkPubKey, encryptedEmbedding, commitment, commitmentNonce, liveness, antiInjection, externalUserId } = body
+
+    // Replay protection: check if session was already consumed
+    if (isSessionConsumed(sessionId)) {
+      logger.warn({ tenantId, sessionId }, 'Replay attempt: session already consumed')
+      return NextResponse.json(
+        { success: false, code: 'SESSION_REPLAY', error: 'Session already used' },
+        { status: 403 },
+      )
+    }
 
     // 1. Validate session
     const sessionCheck = await getSessionForVerification(sessionId, tenantId)
@@ -282,7 +319,17 @@ export async function POST(req: NextRequest) {
     // Wipe embedding from server memory
     embedding.fill(0)
 
-    return NextResponse.json({
+    // Record metrics
+    const duration = (Date.now() - startTime) / 1000
+    cryptoOperationDurationSeconds.observe({ operation: 'session_verify' }, duration)
+    authAttemptsTotal.inc({ tenant_id: tenantId, flow: session.flow, outcome: 'success' })
+    if (session.flow === 'enroll') {
+      enrollmentsTotal.inc({ tenant_id: tenantId, variant: 'standard', outcome: 'success' })
+    }
+
+    logger.info({ tenantId, sessionId, flow: session.flow, duration }, 'Session verified successfully')
+
+    const responseBody = {
       success: true,
       token,
       expiresAt: (now + expiresIn) * 1000,
@@ -290,8 +337,16 @@ export async function POST(req: NextRequest) {
       flow: session.flow,
       liveness,
       outcome,
-    })
+    }
+
+    // Cache for idempotent retry
+    if (idempotencyKey) {
+      cacheIdempotentResponse(tenantId, '/api/session/verify', idempotencyKey, 200, responseBody)
+    }
+
+    return NextResponse.json(responseBody)
   } catch (e) {
+    logger.error({ error: e, tenantId }, 'Session verification failed')
     return NextResponse.json(
       { success: false, error: e instanceof Error ? e.message : 'Unknown error' },
       { status: 500 },

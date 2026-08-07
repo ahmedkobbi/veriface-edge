@@ -1,104 +1,58 @@
 /**
  * POST /api/webauthn/register/begin
- * Begin FIDO2/WebAuthn credential registration for a user.
- *
- * Hybrid flow: pairs a facial template with a hardware authenticator
- * (YubiKey, Touch ID, Windows Hello) for step-up authentication.
- *
- * Body: { externalUserId: string, deviceType?: 'roaming'|'platform' }
- *
- * Returns: PublicKeyCredentialCreationOptions (WebAuthn spec)
+ * Begin FIDO2/WebAuthn credential registration.
+ * Uses @simplewebauthn/server for full attestation verification.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { requireApiKey } from '@/lib/auth'
-import { secureRandomHex, hex } from '@/lib/crypto-server'
-
-const RP_NAME = 'VeriFace Edge'
-// In production: this would be the enterprise client's domain.
-const RP_ID = process.env.WEBAUTHN_RP_ID ?? 'localhost'
-const RP_ORIGIN = process.env.WEBAUTHN_RP_ORIGIN ?? 'http://localhost:3000'
+import { secureRandomHex } from '@/lib/crypto-server'
+import { beginWebAuthnRegistration } from '@/lib/webauthn'
+import { validateInput, WebAuthnRegisterBeginSchema } from '@/lib/validation'
+import { logger } from '@/lib/logger'
 
 export async function POST(req: NextRequest) {
   const authResult = await requireApiKey(req, 'session:init')
   if (!authResult.ok) return authResult.response
 
+  const body = await req.json()
+  const validation = validateInput(WebAuthnRegisterBeginSchema, body)
+  if (!validation.success) {
+    return NextResponse.json({ success: false, error: validation.error }, { status: 400 })
+  }
+  const { externalUserId, deviceType } = validation.data
+
   try {
-    const body = await req.json()
-    const { externalUserId, deviceType } = body
-    if (!externalUserId) {
-      return NextResponse.json({ success: false, error: 'externalUserId required' }, { status: 400 })
-    }
+    const { options, userId } = await beginWebAuthnRegistration(
+      authResult.auth.tenantId!,
+      externalUserId,
+      deviceType,
+    )
 
-    const tenantId = authResult.auth.tenantId!
-
-    // Find or create user
-    let user = await db.user.findFirst({
-      where: { tenantId, externalUserId },
-    })
-    if (!user) {
-      user = await db.user.create({
-        data: {
-          tenantId,
-          externalUserId,
-          revocationToken: secureRandomHex(32),
-        },
-      })
-    }
-
-    // Generate challenge
-    const challenge = secureRandomHex(32)
-    const userId = secureRandomHex(32)
-
-    // Store challenge in a pending session for the finish step
+    // Store challenge in session
+    const challenge = options.challenge
     const session = await db.session.create({
       data: {
-        tenantId,
+        tenantId: authResult.auth.tenantId!,
         challenge,
         backendPubKey: 'webauthn-register',
         flow: 'webauthn_enroll',
-        targetUserId: user.id,
+        targetUserId: userId,
         clientIp: authResult.ip,
-        expiresAt: new Date(Date.now() + 5 * 60 * 1000),  // 5 min for WebAuthn
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000),
       },
     })
 
-    const creationOptions = {
-      challenge: Uint8Array.from(hex.decode(challenge)),
-      rp: {
-        name: RP_NAME,
-        id: RP_ID,
-      },
-      user: {
-        id: Uint8Array.from(hex.decode(userId)),
-        name: externalUserId,
-        displayName: externalUserId,
-      },
-      pubKeyCredParams: [
-        { type: 'public-key', alg: -7 },    // ES256
-        { type: 'public-key', alg: -257 },  // RS256
-        { type: 'public-key', alg: -8 },    // EdDSA
-      ],
-      timeout: 60_000,
-      attestation: 'direct',
-      authenticatorSelection: {
-        authenticatorAttachment: deviceType === 'platform' ? 'platform' : 'cross-platform',
-        userVerification: 'required',
-        requireResidentKey: false,
-      },
-      excludeCredentials: [],
-      extensions: {
-        credProps: true,
-      },
-    }
+    logger.info({ tenantId: authResult.auth.tenantId, sessionId: session.id, externalUserId }, 'WebAuthn registration started')
 
     return NextResponse.json({
       success: true,
       sessionId: session.id,
-      options: creationOptions,
+      options,
     })
   } catch (e) {
+    logger.error({ error: e, tenantId: authResult.auth.tenantId }, 'WebAuthn registration begin failed')
     return NextResponse.json(
       { success: false, error: e instanceof Error ? e.message : 'Unknown error' },
       { status: 500 },

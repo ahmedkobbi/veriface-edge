@@ -48,6 +48,7 @@ import {
   generateEmbedding,
   type DetectedFace,
 } from './ai-pipeline'
+import { generateNeuralEmbedding, preloadNeuralModel } from './neural-embedding'
 
 export type VeriFaceStatus =
   | 'idle'
@@ -205,6 +206,9 @@ export class VeriFace {
     backendPubKey: string
   }> {
     this.setStatus('initializing')
+
+    // Preload neural model in background (non-blocking)
+    preloadNeuralModel().catch(() => {})
 
     // Generate ephemeral session keys
     this.ed25519Keypair = ed25519Generate()
@@ -379,9 +383,13 @@ export class VeriFace {
             const pad = computePad(aligned, face.landmarks)
 
             // Generate embedding (use the best-confidence face)
+            // Try neural embedding first (ONNX), fall back to geometric
             if (face.detectionConfidence > this.bestFaceConfidence) {
               this.bestFaceConfidence = face.detectionConfidence
-              this.bestEmbedding = generateEmbedding(face.landmarks)
+              // Use neural embedding if available; geometric as fallback
+              this.bestEmbedding = await generateNeuralEmbedding(aligned, face.landmarks).catch(
+                () => generateEmbedding(face.landmarks),
+              )
             }
 
             // Compute liveness

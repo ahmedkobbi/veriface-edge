@@ -131,6 +131,9 @@ export function deriveSessionKey(
 
 /**
  * Mark session as completed (success or failure) and clean up.
+ * Once completed, the session CANNOT be reused — this is the
+ * replay protection mechanism. Any subsequent /verify call with
+ * the same sessionId will fail with SESSION_NOT_PENDING.
  */
 export async function completeSession(
   sessionId: string,
@@ -142,6 +145,23 @@ export async function completeSession(
     data: { state, result: result ? JSON.stringify(result) : null },
   })
   activeSessions.delete(sessionId)
+  // Track consumed session IDs for 24h (defense in depth — even if DB
+  // is reset, we still reject recently-used session IDs)
+  consumedSessionIds.set(sessionId, Date.now() + 24 * 60 * 60 * 1000)
+  // Cleanup old entries
+  if (consumedSessionIds.size > 10_000) {
+    const now = Date.now()
+    for (const [id, expiresAt] of consumedSessionIds) {
+      if (expiresAt < now) consumedSessionIds.delete(id)
+    }
+  }
+}
+
+// Consumed session IDs (one-time use enforcement)
+const consumedSessionIds = new Map<string, number>()
+
+export function isSessionConsumed(sessionId: string): boolean {
+  return consumedSessionIds.has(sessionId)
 }
 
 /**

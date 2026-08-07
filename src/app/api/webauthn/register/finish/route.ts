@@ -1,66 +1,28 @@
 /**
  * POST /api/webauthn/register/finish
- * Complete WebAuthn credential registration.
- *
- * Body: {
- *   sessionId: string,
- *   credentialId: string (base64url),
- *   publicKey: string (base64url, COSE format),
- *   attestationObject: string (base64url),
- *   clientDataJSON: string (base64url),
- *   transports: string[],
- *   aaguid: string,
- *   deviceType: 'platform'|'roaming',
- *   backedUp: boolean,
- * }
- *
- * Stores the credential on the user record. Future authentication flows
- * can require both a face ZK proof AND a WebAuthn assertion (step-up auth).
+ * Complete WebAuthn registration with full attestation verification.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { requireApiKey } from '@/lib/auth'
 import { appendAudit } from '@/lib/audit'
-
-function base64urlDecode(s: string): Uint8Array {
-  let padded = s.replace(/-/g, '+').replace(/_/g, '/')
-  while (padded.length % 4 !== 0) padded += '='
-  const bin = atob(padded)
-  const out = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
-  return out
-}
-
-function bytesToHex(bytes: Uint8Array): string {
-  let out = ''
-  for (let i = 0; i < bytes.length; i++) out += bytes[i].toString(16).padStart(2, '0')
-  return out
-}
+import { finishWebAuthnRegistration } from '@/lib/webauthn'
+import { validateInput, WebAuthnRegisterFinishSchema } from '@/lib/validation'
+import { logger } from '@/lib/logger'
 
 export async function POST(req: NextRequest) {
   const authResult = await requireApiKey(req, 'session:init')
   if (!authResult.ok) return authResult.response
 
+  const body = await req.json()
+  const validation = validateInput(WebAuthnRegisterFinishSchema, body)
+  if (!validation.success) {
+    return NextResponse.json({ success: false, error: validation.error }, { status: 400 })
+  }
+  const { sessionId, credentialId, publicKey, attestationObject, clientDataJSON, transports, aaguid, deviceType, backedUp } = validation.data
+
   try {
-    const body = await req.json()
-    const {
-      sessionId,
-      credentialId,
-      publicKey,
-      transports,
-      aaguid,
-      deviceType,
-      backedUp,
-    } = body
-
-    if (!sessionId || !credentialId || !publicKey) {
-      return NextResponse.json(
-        { success: false, error: 'sessionId, credentialId, publicKey required' },
-        { status: 400 },
-      )
-    }
-
     const session = await db.session.findUnique({ where: { id: sessionId } })
     if (!session || session.tenantId !== authResult.auth.tenantId) {
       return NextResponse.json({ success: false, error: 'Session not found' }, { status: 404 })
@@ -72,58 +34,64 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Session expired' }, { status: 410 })
     }
 
-    // Decode and verify the credential (simplified — production would
-    // fully verify the attestation signature against the trusted root CA).
-    const pubKeyBytes = base64urlDecode(publicKey)
-    const credIdBytes = base64urlDecode(credentialId)
+    // Build the credential response for @simplewebauthn/server
+    const credentialResponse = {
+      id: credentialId,
+      rawId: credentialId,
+      type: 'public-key',
+      response: {
+        attestationObject,
+        clientDataJSON,
+        getPublicKey: () => publicKey,
+      },
+      transports: transports ?? [],
+    }
 
-    // Check for duplicate credential ID
-    const existing = await db.webAuthnCredential.findUnique({
-      where: { credentialId },
-    })
-    if (existing) {
+    const result = await finishWebAuthnRegistration(
+      session.tenantId,
+      session.targetUserId!,
+      session.challenge,
+      credentialResponse,
+    )
+
+    if (!result.verified) {
+      await db.session.update({
+        where: { id: sessionId },
+        data: { state: 'failed' },
+      })
       return NextResponse.json(
-        { success: false, error: 'Credential already registered' },
-        { status: 409 },
+        { success: false, error: 'Attestation verification failed' },
+        { status: 400 },
       )
     }
 
-    const credential = await db.webAuthnCredential.create({
-      data: {
-        userId: session.targetUserId!,
-        tenantId: session.tenantId,
-        credentialId,
-        publicKey: bytesToHex(pubKeyBytes),
-        transports: JSON.stringify(transports ?? []),
-        aaguid: aaguid ?? '00000000-0000-0000-0000-000000000000',
-        deviceType: deviceType ?? 'roaming',
-        backedUp: backedUp ?? false,
-      },
-    })
-
     await db.session.update({
       where: { id: sessionId },
-      data: { state: 'success', result: JSON.stringify({ credentialId: credential.id }) },
+      data: { state: 'success', result: JSON.stringify({ credentialId: result.credentialId }) },
     })
 
     await appendAudit({
       tenantId: session.tenantId,
       eventType: 'webauthn.enrolled',
       payload: {
-        credentialId: credential.id,
+        credentialId: result.credentialId,
         userId: session.targetUserId,
+        aaguid,
         deviceType,
         backedUp,
       },
       apiKeyId: authResult.auth.apiKeyId,
     })
 
+    logger.info({ tenantId: session.tenantId, credentialId: result.credentialId }, 'WebAuthn credential registered')
+
     return NextResponse.json({
       success: true,
-      credentialId: credential.id,
+      credentialId: result.credentialId,
       message: 'WebAuthn credential registered. User can now authenticate with face + hardware authenticator.',
     })
   } catch (e) {
+    logger.error({ error: e, sessionId }, 'WebAuthn registration finish failed')
     return NextResponse.json(
       { success: false, error: e instanceof Error ? e.message : 'Unknown error' },
       { status: 500 },

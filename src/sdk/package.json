@@ -1,0 +1,91 @@
+{
+  "name": "@veriface/edge-sdk",
+  "version": "1.0.0",
+  "description": "Privacy-first web facial authentication SDK. All biometric computation runs in the browser via WebGPU/WASM.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./react": {
+      "import": "./dist/react.js",
+      "types": "./dist/react.d.ts"
+    },
+    "./vue": {
+      "import": "./dist/vue.js",
+      "types": "./dist/vue.d.ts"
+    },
+    "./web-component": {
+      "import": "./dist/web-component.js",
+      "types": "./dist/web-component.d.ts"
+    },
+    "./crypto": {
+      "import": "./dist/crypto.js",
+      "types": "./dist/crypto.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "eslint src/",
+    "test": "bun test"
+  },
+  "keywords": [
+    "facial-authentication",
+    "biometric",
+    "face-recognition",
+    "liveness-detection",
+    "rppg",
+    "webgpu",
+    "wasm",
+    "zero-knowledge",
+    "privacy",
+    "fido2",
+    "webauthn",
+    "gdpr",
+    "bipa"
+  ],
+  "license": "Proprietary",
+  "dependencies": {
+    "@noble/curves": "^2.3.0",
+    "@noble/hashes": "^2.3.0",
+    "@noble/ciphers": "^2.2.0",
+    "@mediapipe/tasks-vision": "^1.0.1",
+    "onnxruntime-web": "^1.27.0"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "vue": ">=3"
+  },
+  "peerDependenciesMeta": {
+    "react": { "optional": true },
+    "vue": { "optional": true }
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  },
+  "tsup": {
+    "entry": {
+      "index": "src/index.ts",
+      "react": "src/react.ts",
+      "vue": "src/vue.ts",
+      "web-component": "src/web-component.ts",
+      "crypto": "src/crypto.ts"
+    },
+    "format": ["esm"],
+    "dts": true,
+    "splitting": true,
+    "treeshake": true,
+    "clean": true,
+    "external": ["react", "vue"]
+  }
+}
