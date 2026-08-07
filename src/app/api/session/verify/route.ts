@@ -34,6 +34,8 @@ import { signJwt } from '@/lib/jwt-server'
 import { requireApiKey } from '@/lib/auth'
 import { validateInput, SessionVerifySchema } from '@/lib/validation'
 import { extractIdempotencyKey, getIdempotentResponse, cacheIdempotentResponse } from '@/lib/idempotency'
+import { checkBodySize, BODY_LIMITS } from '@/lib/body-limits'
+import { verifyRequestSignature } from '@/lib/request-signing'
 import { logger } from '@/lib/logger'
 import { authAttemptsTotal, enrollmentsTotal, cryptoOperationDurationSeconds, injectionSuspectedTotal } from '@/lib/metrics'
 import { safeErrorResponse } from '@/lib/config'
@@ -81,6 +83,10 @@ export async function POST(req: NextRequest) {
   const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
 
   // API key authentication
+  // Check request body size (DoS protection)
+  const bodySizeError = await checkBodySize(req, BODY_LIMITS.SESSION_VERIFY)
+  if (bodySizeError) return bodySizeError
+
   const authResult = await requireApiKey(req, 'session:verify')
   if (!authResult.ok) return authResult.response
   const tenantId = authResult.auth.tenantId!
@@ -96,7 +102,20 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const rawBody = await req.json()
+    const rawBodyString = JSON.stringify(await req.json())
+
+    // Verify HMAC request signature (replay protection)
+    // The API key plaintext is needed for signature verification
+    const sigResult = await verifyRequestSignature(req, authResult.auth.apiKey ?? '', rawBodyString)
+    if (!sigResult.valid) {
+      logger.warn({ tenantId, reason: sigResult.reason }, 'Request signature verification failed')
+      return NextResponse.json(
+        { success: false, code: 'INVALID_SIGNATURE', error: `Signature verification failed: ${sigResult.reason}` },
+        { status: 401 },
+      )
+    }
+
+    const rawBody = JSON.parse(rawBodyString)
 
     // Validate input with Zod
     const validation = validateInput(SessionVerifySchema, rawBody)

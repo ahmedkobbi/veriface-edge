@@ -116,6 +116,7 @@ CREATE TABLE "AuditLog" (
 
 CREATE INDEX "AuditLog_tenantId_createdAt_idx" ON "AuditLog"("tenantId", "createdAt");
 CREATE INDEX "AuditLog_tenantId_chainIndex_idx" ON "AuditLog"("tenantId", "chainIndex");
+CREATE UNIQUE INDEX "AuditLog_tenantId_chainIndex_key" ON "AuditLog"("tenantId", "chainIndex");
 CREATE INDEX "AuditLog_eventType_idx" ON "AuditLog"("eventType");
 
 -- Webhook delivery queue
@@ -183,3 +184,21 @@ CREATE TABLE "RateLimitBucket" (
 
 CREATE UNIQUE INDEX "RateLimitBucket_bucketKey_key" ON "RateLimitBucket"("bucketKey");
 CREATE INDEX "RateLimitBucket_bucketKey_windowStart_idx" ON "RateLimitBucket"("bucketKey", "windowStart");
+
+-- Consent records (GDPR Art. 7)
+CREATE TABLE "ConsentRecord" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "purpose" TEXT NOT NULL,
+    "granted" BOOLEAN NOT NULL,
+    "ip" TEXT,
+    "userAgent" TEXT,
+    "flowVersion" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE INDEX "ConsentRecord_tenantId_userId_purpose_idx" ON "ConsentRecord"("tenantId", "userId", "purpose");
+CREATE INDEX "ConsentRecord_tenantId_createdAt_idx" ON "ConsentRecord"("tenantId", "createdAt");
