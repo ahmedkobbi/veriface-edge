@@ -22,6 +22,7 @@ import { GlassSurface, GlassInput, GlassBadge } from '@/components/premium/Glass
 import { PremiumButton, PremiumAlert, usePremiumToast } from '@/components/premium/Premium'
 import { VeriFaceLogo } from '@/components/brand/Icons'
 import { CheckCircleIcon, XCircleIcon, LockIcon, KeyIcon, CopyIcon } from '@/components/brand/Icons'
+import { TwoFactorChallenge } from '@/components/auth/TwoFactorManager'
 
 interface AuthPageProps {
   onSuccess: (user: any) => void
@@ -39,6 +40,7 @@ export function AuthPage({ onSuccess }: AuthPageProps) {
   const [createdApiKey, setCreatedApiKey] = useState<string | null>(null)
   const [resetToken, setResetToken] = useState<string | null>(null)
   const [verificationResult, setVerificationResult] = useState<{ success: boolean; message: string } | null>(null)
+  const [twoFactorPending, setTwoFactorPending] = useState<string | null>(null)
   const { toast } = usePremiumToast()
 
   // Check URL for verify_email or reset_password params
@@ -130,6 +132,12 @@ export function AuthPage({ onSuccess }: AuthPageProps) {
       const data = await res.json()
 
       if (!data.success) {
+        // Check if 2FA is required
+        if (data.requiresTwoFactor && data.pendingToken) {
+          setTwoFactorPending(data.pendingToken)
+          setError(null)
+          return
+        }
         setError(data.error || 'Authentication failed')
         return
       }
@@ -161,6 +169,23 @@ export function AuthPage({ onSuccess }: AuthPageProps) {
     } catch {
       toast.error('Failed to resend')
     }
+  }
+
+  // 2FA challenge
+  if (twoFactorPending) {
+    return (
+      <TwoFactorChallenge
+        pendingToken={twoFactorPending}
+        onSuccess={(user) => {
+          setTwoFactorPending(null)
+          onSuccess(user)
+        }}
+        onCancel={() => {
+          setTwoFactorPending(null)
+          setMode('login')
+        }}
+      />
+    )
   }
 
   // Email verification result

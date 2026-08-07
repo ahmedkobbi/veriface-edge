@@ -14,6 +14,7 @@ import {
   ZapIcon, EyeIcon, RadioIcon, CpuIcon, SettingsIcon,
 } from '@/components/brand/Icons'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { TwoFactorManager } from '@/components/auth/TwoFactorManager'
 
 type CustomerTab = 'dashboard' | 'security' | 'profile' | 'privacy' | 'account' | 'notifications'
 
@@ -176,7 +177,9 @@ function Account({ tenantId, userEmail }: { tenantId: string; userEmail: string 
   const [curPw, setCurPw] = useState(''); const [newPw, setNewPw] = useState(''); const [name, setName] = useState('')
   const [savePw, setSavePw] = useState(false); const [saveName, setSaveName] = useState(false)
   const [showDel, setShowDel] = useState(false); const [deleting, setDeleting] = useState(false)
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false)
   const { toast } = usePremiumToast(); const H = { 'X-Tenant-Id': tenantId }
+  useEffect(() => { fetch('/api/auth/me').then(r=>r.json()).then(d=>{ if(d.success) setTwoFactorEnabled(d.user.twoFactorEnabled ?? false) }).catch(()=>{}) }, [])
   const handlePw = async () => { setSavePw(true); try { const r = await fetch('/api/customer/account', { method:'PUT', headers:{'Content-Type':'application/json',...H}, body: JSON.stringify({action:'change_password',currentPassword:curPw,newPassword:newPw}) }); const d = await r.json(); if (d.success) { toast.success('Password updated'); setCurPw(''); setNewPw('') } else toast.error('Failed', d.error) } catch { toast.error('Failed') } finally { setSavePw(false) } }
   const handleName = async () => { setSaveName(true); try { const r = await fetch('/api/customer/account', { method:'PUT', headers:{'Content-Type':'application/json',...H}, body: JSON.stringify({action:'update_name',name}) }); const d = await r.json(); if (d.success) { toast.success('Name updated') } else { toast.error('Failed') } } catch { toast.error('Failed') } finally { setSaveName(false) } }
   const handleDel = async () => { setDeleting(true); try { const r = await fetch('/api/customer/account', { method:'DELETE', headers:H }); const d = await r.json(); if (d.success) { toast.success('Account deleted'); window.location.reload() } else toast.error('Failed') } catch { toast.error('Failed') } finally { setDeleting(false) } }
@@ -194,6 +197,8 @@ function Account({ tenantId, userEmail }: { tenantId: string; userEmail: string 
         <h3 className="text-sm font-medium text-slate-200 mb-3">Display Name</h3>
         <div className="flex gap-2"><GlassInput placeholder="Name" value={name} onChange={e=>setName(e.target.value)} className="flex-1" /><PremiumButton onClick={handleName} loading={saveName} disabled={!name}>Save</PremiumButton></div>
       </GlassSurface>
+      {/* 2FA */}
+      <TwoFactorManager tenantId={tenantId} twoFactorEnabled={twoFactorEnabled} onStatusChange={setTwoFactorEnabled} />
       <GlassSurface blur="xl" opacity="medium" className="rounded-2xl p-4">
         <h3 className="text-sm font-medium text-red-300 mb-3">Danger Zone</h3>
         <div className="flex items-center justify-between p-3 rounded-lg border border-red-500/20 bg-red-500/5"><div><p className="text-xs font-medium text-red-300">Delete Account</p><p className="text-[10px] text-red-400/70">Permanently delete everything.</p></div><PremiumButton variant="danger" size="sm" onClick={()=>setShowDel(true)} icon={<TrashIcon className="w-3 h-3" />}>Delete</PremiumButton></div>

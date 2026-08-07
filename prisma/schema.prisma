@@ -280,6 +280,9 @@ model PlatformUser {
   emailVerified Boolean  @default(false)
   tenantId      String?  // owned tenant (1 user → 1 tenant for now)
   lastLoginAt   DateTime?
+  twoFactorEnabled  Boolean  @default(false)
+  twoFactorSecret   String?  // encrypted TOTP secret (base32)
+  twoFactorBackupCodes String? // JSON array of hashed backup codes
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

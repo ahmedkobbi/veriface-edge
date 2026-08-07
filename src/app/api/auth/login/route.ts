@@ -39,6 +39,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Invalid credentials' }, { status: 401 })
     }
 
+    // Check if 2FA is enabled
+    if (user.twoFactorEnabled) {
+      // Don't issue session cookie yet — require TOTP code
+      const { createTwoFactorPendingToken } = await import('@/lib/totp')
+      const pendingToken = await createTwoFactorPendingToken(user.id, user.email)
+
+      logger.info({ userId: user.id, email: user.email }, '2FA challenge required')
+
+      return NextResponse.json({
+        success: false,
+        requiresTwoFactor: true,
+        pendingToken,
+        message: 'Enter the 6-digit code from your authenticator app.',
+      })
+    }
+
     // Update lastLoginAt
     await db.platformUser.update({
       where: { id: user.id },
