@@ -782,3 +782,31 @@ model Payment {
   @@index([provider, status])
   @@index([providerPaymentId])
 }
+
+/// Processed webhook events — for idempotency.
+/// Prevents duplicate processing when Stripe/NowPayments retry webhooks.
+/// Stripe retries up to 16 times over 3 days; NowPayments retries for 24 hours.
+/// Without this table, each retry would create duplicate invoice/payment records.
+model WebhookEvent {
+  id              String   @id @default(cuid())
+  /// Provider: 'stripe' | 'nowpayments'.
+  provider        String
+  /// Provider's event ID (Stripe: evt_..., NowPayments: payment_id + status).
+  eventId         String
+  /// Event type (Stripe: checkout.session.completed, etc.).
+  eventType       String?
+  /// Whether the event was successfully processed.
+  processed       Boolean  @default(false)
+  /// Processing error (if failed).
+  error           String?
+  /// Provider's raw payload (JSON, for audit/debugging).
+  payload         String?
+  /// When the event was received.
+  receivedAt      DateTime @default(now())
+  /// When the event was processed.
+  processedAt     DateTime?
+
+  @@unique([provider, eventId])
+  @@index([provider, processed])
+  @@index([receivedAt])
+}

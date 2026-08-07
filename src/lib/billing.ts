@@ -240,8 +240,18 @@ export async function createCustomerPortalSession(opts: {
 // Stripe Webhook Handler
 // ---------------------------------------------------------------------------
 
+/** Maximum age for a webhook event (5 minutes). Prevents replay attacks. */
+const MAX_WEBHOOK_AGE_SECONDS = 300
+
 /**
  * Verify + process a Stripe webhook event.
+ *
+ * SECURITY:
+ *   1. Signature verification: stripe.webhooks.constructEvent (timing-safe)
+ *   2. Replay protection: reject events older than 5 minutes
+ *   3. Idempotency: dedup by event ID (Stripe retries up to 16× over 3 days)
+ *   4. Webhook-only business logic: subscription activation happens HERE,
+ *      never in the checkout success_url redirect.
  *
  * Must be called with the RAW request body (not parsed JSON) for
  * signature verification to work.
@@ -249,7 +259,7 @@ export async function createCustomerPortalSession(opts: {
 export async function handleStripeWebhook(
   rawBody: string | Buffer,
   signature: string,
-): Promise<{ received: boolean; event?: string; error?: string }> {
+): Promise<{ received: boolean; event?: string; error?: string; idempotent?: boolean }> {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
   if (!webhookSecret) {
     logger.error('STRIPE_WEBHOOK_SECRET not configured — webhook rejected')
@@ -258,7 +268,7 @@ export async function handleStripeWebhook(
 
   const stripe = getStripe()
 
-  // Verify webhook signature (timing-safe)
+  // --- Security Layer 1: Signature verification (timing-safe) ---
   let event: Stripe.Event
   try {
     event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret)
@@ -267,9 +277,46 @@ export async function handleStripeWebhook(
     return { received: false, error: 'Invalid signature' }
   }
 
-  logger.info({ type: event.type, id: event.id }, 'Stripe webhook received')
+  // --- Security Layer 2: Replay protection (reject events older than 5 min) ---
+  const eventAge = Math.floor(Date.now() / 1000) - event.created
+  if (eventAge > MAX_WEBHOOK_AGE_SECONDS) {
+    logger.warn(
+      { eventId: event.id, eventAge, maxAge: MAX_WEBHOOK_AGE_SECONDS },
+      'Stripe webhook rejected — event too old (replay protection)',
+    )
+    return { received: false, error: 'Event too old — possible replay attack' }
+  }
 
-  // Process event
+  // --- Security Layer 3: Idempotency (dedup by event ID) ---
+  // Stripe retries webhooks up to 16 times over 3 days. Without dedup,
+  // each retry would create duplicate invoice/payment records.
+  const existingEvent = await db.webhookEvent.findUnique({
+    where: { provider_eventId: { provider: 'stripe', eventId: event.id } },
+  })
+
+  if (existingEvent?.processed) {
+    logger.info({ eventId: event.id, type: event.type }, 'Stripe webhook already processed — skipping (idempotent)')
+    return { received: true, event: event.type, idempotent: true }
+  }
+
+  // Record the event (or update if it exists but wasn't processed)
+  await db.webhookEvent.upsert({
+    where: { provider_eventId: { provider: 'stripe', eventId: event.id } },
+    create: {
+      provider: 'stripe',
+      eventId: event.id,
+      eventType: event.type,
+      payload: JSON.stringify(event),
+    },
+    update: {
+      eventType: event.type,
+      payload: JSON.stringify(event),
+    },
+  })
+
+  logger.info({ type: event.type, id: event.id, age: eventAge }, 'Stripe webhook received — processing')
+
+  // --- Security Layer 4: Process event (business logic runs HERE, not in success_url) ---
   try {
     switch (event.type) {
       case 'checkout.session.completed':
@@ -301,9 +348,21 @@ export async function handleStripeWebhook(
         logger.debug({ type: event.type }, 'Unhandled Stripe event type')
     }
 
+    // Mark event as processed
+    await db.webhookEvent.update({
+      where: { provider_eventId: { provider: 'stripe', eventId: event.id } },
+      data: { processed: true, processedAt: new Date() },
+    })
+
     return { received: true, event: event.type }
   } catch (e) {
-    logger.error({ error: e, type: event.type }, 'Stripe webhook processing failed')
+    // Mark as failed (will be retried by Stripe)
+    await db.webhookEvent.update({
+      where: { provider_eventId: { provider: 'stripe', eventId: event.id } },
+      data: { processed: false, error: String(e).slice(0, 500) },
+    })
+
+    logger.error({ error: e, type: event.type, eventId: event.id }, 'Stripe webhook processing failed')
     return { received: false, error: 'Processing failed' }
   }
 }
@@ -620,6 +679,14 @@ export async function createNowPaymentsInvoice(opts: {
 /**
  * Verify + process a NowPayments IPN webhook.
  *
+ * SECURITY:
+ *   1. Signature verification: HMAC-SHA256 (timing-safe comparison)
+ *   2. Replay protection: reject events older than 5 minutes
+ *   3. Idempotency: dedup by payment_id + payment_status
+ *   4. Server-side price verification: verify paid amount matches expected plan price
+ *   5. Webhook-only business logic: subscription activation happens HERE,
+ *      never in the success_url redirect.
+ *
  * NowPayments sends HMAC-signed webhooks. The signature is in the
  * `x-nowpayments-sig` header and is computed as:
  *   HMAC-SHA256(sorted(JSON.stringify(body)), ipn_secret)
@@ -627,19 +694,18 @@ export async function createNowPaymentsInvoice(opts: {
 export async function handleNowPaymentsWebhook(
   body: any,
   signature: string,
-): Promise<{ received: boolean; error?: string }> {
+): Promise<{ received: boolean; error?: string; idempotent?: boolean }> {
   const ipnSecret = process.env.NOWPAYMENTS_IPN_SECRET
   if (!ipnSecret) {
     logger.error('NOWPAYMENTS_IPN_SECRET not configured — webhook rejected')
     return { received: false, error: 'IPN secret not configured' }
   }
 
-  // Verify HMAC signature
+  // --- Security Layer 1: HMAC signature verification (timing-safe) ---
   const crypto = await import('node:crypto')
   const sortedBody = JSON.stringify(body, Object.keys(body).sort())
   const expectedSig = crypto.createHmac('sha256', ipnSecret).update(sortedBody).digest('hex')
 
-  // Timing-safe comparison
   const sigBuffer = Buffer.from(signature)
   const expectedBuffer = Buffer.from(expectedSig)
   if (sigBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(sigBuffer, expectedBuffer)) {
@@ -647,9 +713,6 @@ export async function handleNowPaymentsWebhook(
     return { received: false, error: 'Invalid signature' }
   }
 
-  logger.info({ type: body.payment_status, id: body.payment_id }, 'NowPayments webhook received')
-
-  // Process payment status
   const paymentId = body.payment_id
   const paymentStatus = body.payment_status
   const tenantId = body.metadata?.tenantId
@@ -659,13 +722,88 @@ export async function handleNowPaymentsWebhook(
     return { received: false, error: 'Missing tenantId or paymentId' }
   }
 
-  // Update payment record
+  // --- Security Layer 2: Replay protection (reject events older than 5 min) ---
+  // NowPayments includes a `created_at` timestamp in the webhook body
+  const eventTimestamp = body.created_at ? new Date(body.created_at).getTime() / 1000 : 0
+  const eventAge = eventTimestamp > 0 ? Math.floor(Date.now() / 1000) - eventTimestamp : 0
+  if (eventAge > MAX_WEBHOOK_AGE_SECONDS) {
+    logger.warn(
+      { paymentId, eventAge, maxAge: MAX_WEBHOOK_AGE_SECONDS },
+      'NowPayments webhook rejected — event too old (replay protection)',
+    )
+    return { received: false, error: 'Event too old — possible replay attack' }
+  }
+
+  // --- Security Layer 3: Idempotency (dedup by payment_id + status) ---
+  // NowPayments retries webhooks for 24 hours. Each status change is a new event,
+  // but the same status can be delivered multiple times.
+  const eventId = `${paymentId}_${paymentStatus}`
+  const existingEvent = await db.webhookEvent.findUnique({
+    where: { provider_eventId: { provider: 'nowpayments', eventId } },
+  })
+
+  if (existingEvent?.processed) {
+    logger.info({ eventId, paymentId, status: paymentStatus }, 'NowPayments webhook already processed — skipping (idempotent)')
+    return { received: true, idempotent: true }
+  }
+
+  await db.webhookEvent.upsert({
+    where: { provider_eventId: { provider: 'nowpayments', eventId } },
+    create: {
+      provider: 'nowpayments',
+      eventId,
+      eventType: paymentStatus,
+      payload: JSON.stringify(body),
+    },
+    update: {
+      eventType: paymentStatus,
+      payload: JSON.stringify(body),
+    },
+  })
+
+  logger.info({ paymentId, status: paymentStatus, age: eventAge }, 'NowPayments webhook received — processing')
+
+  // --- Security Layer 4: Server-side price verification ---
+  // NEVER trust the price from the webhook body. Verify the paid amount
+  // matches the expected plan price from our server-side BILLING_PLANS.
+  const plan = BILLING_PLANS[planTier as keyof typeof BILLING_PLANS]
+  if (!plan) {
+    logger.error({ planTier }, 'NowPayments webhook: unknown plan tier')
+    return { received: false, error: 'Unknown plan tier' }
+  }
+
+  const expectedInterval = body.metadata?.interval || 'month'
+  const expectedPriceUsd = expectedInterval === 'year' ? plan.priceYearly : plan.priceMonthly
+  const actualPriceUsd = body.price_amount || 0
+
+  // Allow 1% tolerance for crypto price fluctuations (NowPayments converts USD → crypto at checkout time)
+  if (Math.abs(actualPriceUsd - expectedPriceUsd) > expectedPriceUsd * 0.01) {
+    logger.error(
+      { paymentId, expectedPriceUsd, actualPriceUsd, planTier },
+      'NowPayments webhook: price mismatch — possible manipulation attempt',
+    )
+    await appendAudit({
+      tenantId,
+      eventType: 'tenant.deactivated',
+      payload: {
+        action: 'price_mismatch_rejected',
+        paymentId,
+        expectedPriceUsd,
+        actualPriceUsd,
+        planTier,
+      },
+    })
+    return { received: false, error: 'Price mismatch — payment rejected' }
+  }
+
+  // --- Process payment status ---
   const status = paymentStatus === 'finished' || paymentStatus === 'confirmed'
     ? 'succeeded'
     : paymentStatus === 'failed' || paymentStatus === 'expired'
     ? 'failed'
     : 'pending'
 
+  // Update payment record
   await db.payment.updateMany({
     where: { providerPaymentId: paymentId, provider: 'nowpayments' },
     data: {
@@ -678,7 +816,9 @@ export async function handleNowPaymentsWebhook(
     },
   })
 
-  // If payment succeeded, activate subscription
+  // --- Security Layer 5: Webhook-only business logic ---
+  // Subscription activation happens HERE (in the webhook), never in the
+  // success_url redirect. The success_url is display-only.
   if (status === 'succeeded') {
     await db.subscription.upsert({
       where: { tenantId },
@@ -686,7 +826,7 @@ export async function handleNowPaymentsWebhook(
         tenantId,
         planTier,
         status: 'active',
-        interval: body.metadata?.interval || 'month',
+        interval: expectedInterval,
       },
       update: {
         planTier,
@@ -705,8 +845,14 @@ export async function handleNowPaymentsWebhook(
       payload: { action: 'crypto_payment_confirmed', planTier, paymentId, txHash: body.tx_hash },
     })
 
-    logger.info({ tenantId, planTier, txHash: body.tx_hash }, 'Crypto payment confirmed — subscription activated')
+    logger.info({ tenantId, planTier, txHash: body.tx_hash }, 'Crypto payment confirmed — subscription activated via webhook')
   }
+
+  // Mark event as processed
+  await db.webhookEvent.update({
+    where: { provider_eventId: { provider: 'nowpayments', eventId } },
+    data: { processed: true, processedAt: new Date() },
+  })
 
   return { received: true }
 }
