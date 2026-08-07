@@ -11,6 +11,7 @@ import {
 import { AuthPage } from '@/components/auth/AuthPage'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { FraudScoreModule, AccessPoliciesModule, WebhookDeliveryModule, BrandingModule, EmbedCodeModule, StatusPage } from '@/components/admin/AdvancedModules'
+import { SamlConfigModule } from '@/components/admin/SamlConfigModule'
 
 type AdminTab = 'dashboard' | 'usage' | 'security' | 'templates' | 'analytics' | 'team' | 'integrations' | 'compliance' | 'developer' | 'settings' | 'fraud' | 'policies' | 'webhooks' | 'branding' | 'embed' | 'status'
 
@@ -88,7 +89,7 @@ export function AdminPanel() {
       {tab === 'templates' && <TemplatesTab tenantId={user.tenantId} userRole={user.role} />}
       {tab === 'analytics' && <AnalyticsTab tenantId={user.tenantId} />}
       {tab === 'team' && <TeamTab tenantId={user.tenantId} userRole={user.role} />}
-      {tab === 'integrations' && <IntegrationsTab tenantId={user.tenantId} />}
+      {tab === 'integrations' && <IntegrationsTab tenantId={user.tenantId} userRole={user.role} />}
       {tab === 'compliance' && <ComplianceTab tenantId={user.tenantId} userRole={user.role} />}
       {tab === 'developer' && <DeveloperTab tenantId={user.tenantId} />}
       {tab === 'settings' && <SettingsTab tenantId={user.tenantId} userRole={user.role} />}
@@ -721,7 +722,7 @@ function TeamTab({ tenantId, userRole }: { tenantId: string; userRole: string })
 }
 
 // === INTEGRATIONS === (same as before)
-function IntegrationsTab({ tenantId }: { tenantId: string }) {
+function IntegrationsTab({ tenantId, userRole }: { tenantId: string; userRole: string }) {
   return (
     <div className="space-y-4">
       <GlassSurface blur="xl" opacity="medium" className="rounded-2xl p-4">
@@ -754,6 +755,9 @@ const { authenticate, status } = useFaceAuth({
 })
 await authenticate('user_123')`}</pre>
       </GlassSurface>
+
+      {/* SAML SSO Configuration */}
+      <SamlConfigModule tenantId={tenantId} userRole={userRole} />
     </div>
   )
 }

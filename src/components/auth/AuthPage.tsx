@@ -343,6 +343,31 @@ export function AuthPage({ onSuccess }: AuthPageProps) {
           {/* Footer (login/signup only) */}
           {(mode === 'login' || mode === 'signup') && (
             <div className="mt-4 pt-4 border-t border-white/[0.06]">
+              {/* SSO divider + button (login only) */}
+              {mode === 'login' && (
+                <>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="flex-1 h-px bg-white/[0.06]" />
+                    <span className="text-[10px] text-slate-600">or</span>
+                    <div className="flex-1 h-px bg-white/[0.06]" />
+                  </div>
+                  <PremiumButton
+                    variant="outline"
+                    className="w-full mb-3"
+                    onClick={() => {
+                      const tenantId = new URLSearchParams(window.location.search).get('tenant')
+                      if (tenantId) {
+                        window.location.href = `/api/saml/login?tenant=${tenantId}&redirect=/admin`
+                      } else {
+                        toast.info('SSO requires a tenant ID', 'Ask your admin for the SSO login URL')
+                      }
+                    }}
+                    icon={<svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 2 L20 6 L20 13 C20 17 16 21 12 22 C8 21 4 17 4 13 L4 6 Z" strokeLinejoin="round"/><path d="M9 12 L11 14 L15 10" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                  >
+                    Sign in with SSO (SAML)
+                  </PremiumButton>
+                </>
+              )}
               <p className="text-[10px] text-slate-500 text-center">
                 {mode === 'login' ? "Don't have an account? " : 'Already have an account? '}
                 <button onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(null); setCreatedApiKey(null) }} className="text-emerald-400 hover:text-emerald-300">

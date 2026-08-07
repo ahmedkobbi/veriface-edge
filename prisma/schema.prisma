@@ -44,6 +44,7 @@ model Tenant {
   apiKeys     ApiKey[]
   webauthnCreds WebAuthnCredential[]
   platformUsers PlatformUser[]
+  samlConfig   SamlConfig?
 
   @@index([active])
 }
@@ -324,6 +325,37 @@ model PasswordResetToken {
   @@index([userId])
   @@index([token])
   @@index([expiresAt])
+}
+
+/// SAML SSO configuration per tenant.
+/// Allows enterprise customers to authenticate via their IdP (Okta, Azure AD, OneLogin).
+model SamlConfig {
+  id              String   @id @default(cuid())
+  tenantId        String   @unique
+  /// IdP entity ID (usually a URL, e.g., https://yourorg.okta.com/saml/metadata)
+  idpEntityId     String
+  /// IdP SSO URL (where we redirect users to authenticate)
+  idpSsoUrl       String
+  /// IdP x509 certificate (PEM format, used to verify SAML assertions)
+  idpCertificate  String
+  /// SP entity ID (our entity ID, e.g., https://api.veriface.io/saml/metadata)
+  spEntityId      String
+  /// SP ACS URL (our Assertion Consumer Service URL)
+  spAcsUrl        String
+  /// Attribute mapping: which SAML attribute contains the email
+  emailAttribute  String   @default("email")
+  /// Attribute mapping: which SAML attribute contains the name
+  nameAttribute   String   @default("name")
+  /// Whether SAML SSO is enabled for this tenant
+  enabled         Boolean  @default(false)
+  /// Auto-provision users on first SAML login
+  autoProvision   Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
 }
 
 /// Rate limit bucket (per tenant + IP). Reset every minute.
