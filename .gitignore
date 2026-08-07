@@ -50,5 +50,38 @@ test
 prompt
 
 server.log
-# Skills directory
+
+# Local SQLite database (contains tenant data, audit logs — never commit)
+/db/*.db
+/db/*.db-journal
+
+# Tool results / scratch
+/tool-results/
+/upload/
+
+# Downloaded artifacts (generated)
+/download/
+
+# Local scripts scratch
+/scripts/_local/
+
+# Skills directory (vendored tooling, not part of app)
 /skills/
+
+# OS files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Build artifacts
+dist/
+build/
+*.tgz
+*.tar.gz
