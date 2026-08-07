@@ -84,7 +84,7 @@ export const webhookDeliveryDurationSeconds = new Histogram({
 export const rateLimitHitsTotal = new Counter({
   name: 'veriface_rate_limit_hits_total',
   help: 'Rate limit hits (429 responses)',
-  labelNames: ['tenant_id'],
+  labelNames: ['tenant_id', 'reason'],
   registers: [registry],
 })
 

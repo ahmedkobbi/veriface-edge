@@ -39,6 +39,8 @@ import { verifyRequestSignature } from '@/lib/request-signing'
 import { logger } from '@/lib/logger'
 import { authAttemptsTotal, enrollmentsTotal, cryptoOperationDurationSeconds, injectionSuspectedTotal } from '@/lib/metrics'
 import { safeErrorResponse } from '@/lib/config'
+import { incrementMonthlyUsage, getPlan } from '@/lib/rate-limit-tiers'
+import { notifyBillingThreshold, notifyBillingLimitReached, notifyInjectionDetected, getTenantAdminRecipient } from '@/lib/email-notifications'
 
 interface VerifyPayload {
   sessionId: string
@@ -87,7 +89,7 @@ export async function POST(req: NextRequest) {
   const bodySizeError = await checkBodySize(req, BODY_LIMITS.SESSION_VERIFY)
   if (bodySizeError) return bodySizeError
 
-  const authResult = await requireApiKey(req, 'session:verify')
+  const authResult = await requireApiKey(req, 'session:verify', { billable: true })
   if (!authResult.ok) return authResult.response
   const tenantId = authResult.auth.tenantId!
 
@@ -206,6 +208,25 @@ export async function POST(req: NextRequest) {
         actorIp: clientIp,
       })
       await completeSession(sessionId, 'failed', { reason: 'ANTI_INJECTION_FAILED' })
+
+      // Fire injection-detected email to tenant admin (best-effort, non-blocking)
+      try {
+        const admin = await getTenantAdminRecipient(tenantId)
+        if (admin) {
+          void notifyInjectionDetected({
+            tenantId,
+            to: admin.email,
+            userId: admin.userId,
+            name: admin.name ?? undefined,
+            reasons: antiInjection.failureReasons.join(', '),
+            ip: clientIp,
+            sessionId,
+          })
+        }
+      } catch (e) {
+        logger.warn({ error: e, tenantId }, 'Failed to enqueue injection-detected email')
+      }
+
       return NextResponse.json(
         { success: false, code: 'INJECTION_SUSPECTED', error: `Anti-injection failed: ${antiInjection.failureReasons.join(', ')}` },
         { status: 403 },
@@ -324,6 +345,33 @@ export async function POST(req: NextRequest) {
         templateId: result.templateId,
         liveness,
       })
+
+      // Increment monthly usage + fire billing alerts if thresholds crossed
+      try {
+        const plan = getPlan(tenant.planTier)
+        const usage = await incrementMonthlyUsage(tenantId, tenant.planTier)
+        if (plan.monthlyLimit > 0) {
+          const admin = await getTenantAdminRecipient(tenantId)
+          if (admin) {
+            if (usage.limitJustCrossed) {
+              const nextMonth = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() + 1, 1))
+              void notifyBillingLimitReached({
+                tenantId, to: admin.email, userId: admin.userId,
+                monthlyLimit: plan.monthlyLimit, planName: plan.displayName,
+                resetDate: nextMonth.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+              })
+            } else if (usage.thresholdJustCrossed) {
+              void notifyBillingThreshold({
+                tenantId, to: admin.email, userId: admin.userId,
+                usedPct: usage.usedPct, currentCount: usage.count,
+                monthlyLimit: plan.monthlyLimit, planName: plan.displayName,
+              })
+            }
+          }
+        }
+      } catch (e) {
+        logger.warn({ error: e, tenantId }, 'Failed to increment monthly usage / fire billing alert')
+      }
     } else {
       // Authenticate: verify against stored template
       if (!externalUserId) {
@@ -356,6 +404,33 @@ export async function POST(req: NextRequest) {
         cosine: result.cosineSimilarity,
         liveness,
       })
+
+      // Increment monthly usage + fire billing alerts if thresholds crossed
+      try {
+        const plan = getPlan(tenant.planTier)
+        const usage = await incrementMonthlyUsage(tenantId, tenant.planTier)
+        if (plan.monthlyLimit > 0) {
+          const admin = await getTenantAdminRecipient(tenantId)
+          if (admin) {
+            if (usage.limitJustCrossed) {
+              const nextMonth = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() + 1, 1))
+              void notifyBillingLimitReached({
+                tenantId, to: admin.email, userId: admin.userId,
+                monthlyLimit: plan.monthlyLimit, planName: plan.displayName,
+                resetDate: nextMonth.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+              })
+            } else if (usage.thresholdJustCrossed) {
+              void notifyBillingThreshold({
+                tenantId, to: admin.email, userId: admin.userId,
+                usedPct: usage.usedPct, currentCount: usage.count,
+                monthlyLimit: plan.monthlyLimit, planName: plan.displayName,
+              })
+            }
+          }
+        }
+      } catch (e) {
+        logger.warn({ error: e, tenantId }, 'Failed to increment monthly usage / fire billing alert')
+      }
     }
 
     // 9. Issue auth token (server-signed JWT, 5 minute expiry)

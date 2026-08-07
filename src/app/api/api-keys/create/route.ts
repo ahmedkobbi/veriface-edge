@@ -15,6 +15,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireApiKey, createApiKey } from '@/lib/auth'
 import { safeErrorResponse } from '@/lib/config'
+import { logger } from '@/lib/logger'
+import { enqueueEmail, getTenantAdminRecipient } from '@/lib/email-notifications'
 
 export async function POST(req: NextRequest) {
   const authResult = await requireApiKey(req, 'tenant:admin')
@@ -37,6 +39,29 @@ export async function POST(req: NextRequest) {
       environment,
       expiresInDays,
     })
+
+    // Fire API-key-created email to tenant admin (best-effort, non-blocking)
+    void (async () => {
+      try {
+        const admin = await getTenantAdminRecipient(authResult.auth.tenantId!)
+        if (admin) {
+          await enqueueEmail({
+            tenantId: authResult.auth.tenantId!,
+            to: admin.email,
+            userId: admin.userId,
+            template: 'security.api_key_created',
+            vars: {
+              name: admin.name ?? undefined,
+              label,
+              timestamp: new Date().toISOString(),
+              ip: authResult.ip,
+            },
+          })
+        }
+      } catch (e) {
+        logger.warn({ error: e }, 'Failed to enqueue API-key-created email')
+      }
+    })()
 
     return NextResponse.json({
       success: true,

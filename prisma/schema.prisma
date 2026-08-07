@@ -31,8 +31,16 @@ model Tenant {
   webhookUrl    String?
   /// Active flag. Soft-deleted tenants cannot authenticate.
   active        Boolean  @default(true)
-  /// Maximum auths per minute per tenant (rate limit).
+  /// Maximum auths per minute per tenant (rate limit) — per-minute floor.
+  /// Overridden by planTier (Developer=10, Growth=100, Enterprise=1000).
   rateLimitPerMin Int    @default(60)
+  /// Pricing tier: 'developer' (1K/mo) | 'growth' (100K/mo) | 'enterprise' (unlimited).
+  /// Drives monthly API quota, per-minute limit floor, feature flags, and billing alerts.
+  planTier      String   @default("developer")
+  /// Spending limit (USD) per month — billing alert fires when reached.
+  spendingLimitUsd Float  @default(100)
+  /// Alert when monthly usage crosses this percentage of monthly limit (0–100).
+  alertThresholdPct Int   @default(80)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -45,8 +53,102 @@ model Tenant {
   webauthnCreds WebAuthnCredential[]
   platformUsers PlatformUser[]
   samlConfig   SamlConfig?
+  emailLogs   EmailLog[]
+  notificationPrefs NotificationPreference[]
+  apiUsageCounters ApiUsageCounter[]
 
   @@index([active])
+  @@index([planTier])
+}
+
+/// Per-tenant monthly API usage counter (for plan-tier rate limiting).
+/// Key: `${tenantId}:${YYYY-MM}`. Reset on month rollover.
+model ApiUsageCounter {
+  id              String   @id @default(cuid())
+  tenantId        String
+  /// Year-month key, e.g., "2026-08". One row per tenant per month.
+  monthKey        String
+  /// Count of billable API calls this month (auth.success, enroll.success, etc.).
+  count           Int      @default(0)
+  /// Whether the 80% alert was already fired (prevents duplicate emails).
+  thresholdAlertSent Boolean @default(false)
+  /// Whether the 100% limit alert was already fired.
+  limitAlertSent  Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, monthKey])
+  @@index([tenantId, monthKey])
+  @@index([monthKey])
+}
+
+/// Email notification log — every sent email is recorded here.
+/// Acts as the queue (state='pending') and the history (state='sent'/'failed').
+model EmailLog {
+  id              String   @id @default(cuid())
+  tenantId        String
+  /// Recipient email address.
+  toAddress       String
+  /// Template key: 'auth.new_device' | 'auth.failed_login' | 'billing.threshold' | etc.
+  template        String
+  /// Rendered subject line.
+  subject         String
+  /// Rendered HTML body (stored for audit trail, encrypted at rest in production).
+  bodyHtml        String
+  /// State machine: 'pending' → 'sent' | 'failed' | 'suppressed'
+  state           String   @default("pending")
+  /// Attempt count (for retry tracking).
+  attempts        Int      @default(0)
+  /// Max attempts before dead-lettering (default 4 = 1 initial + 3 retries).
+  maxAttempts     Int      @default(4)
+  /// Next retry time (exponential backoff: 1m, 10m, 1h).
+  nextRetryAt     DateTime?
+  /// Last SMTP response code (250, 421, 550, etc.).
+  lastResponseCode Int?
+  /// Last error message (truncated, PII-redacted).
+  lastError       String?
+  /// Dedup key — if set, only one email per (tenantId, dedupKey, 10-min window) is sent.
+  dedupKey        String?
+  /// Idempotency: SHA-256 of (tenantId | template | dedupKey | windowStart).
+  idempotencyKey  String?
+  sentAt          DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, state])
+  @@index([tenantId, template, createdAt])
+  @@index([nextRetryAt])
+  @@index([toAddress])
+  @@unique([idempotencyKey])
+}
+
+/// Per-user notification preferences. Overrides tenant-wide defaults.
+model NotificationPreference {
+  id              String   @id @default(cuid())
+  tenantId        String
+  /// PlatformUser ID this preference belongs to.
+  userId          String
+  /// Auth alerts (new device, password change, 2FA change).
+  authAlerts      Boolean  @default(true)
+  /// Security alerts (injection detected, brute force, suspicious activity).
+  securityAlerts  Boolean  @default(true)
+  /// Billing alerts (threshold reached, spending limit hit, quota exhausted).
+  billingAlerts   Boolean  @default(true)
+  /// Product updates (new features, changelog, maintenance).
+  productUpdates  Boolean  @default(false)
+  /// Weekly usage digest.
+  weeklyDigest    Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([userId])
+  @@index([tenantId])
 }
 
 /// API keys for tenant authentication. Each tenant can have multiple keys

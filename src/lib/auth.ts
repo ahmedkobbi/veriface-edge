@@ -15,6 +15,14 @@ import { sha256Hex, secureRandomHex, constantTimeEqual } from '@/lib/crypto-serv
 import { appendAudit } from '@/lib/audit'
 import { logger } from '@/lib/logger'
 import { apiKeyAuthAttemptsTotal, rateLimitHitsTotal } from '@/lib/metrics'
+import {
+  getEffectivePerMinuteLimit,
+  getMonthlyUsage,
+  buildRateLimitHeaders,
+  getPlan,
+  type MonthlyUsageResult,
+  type PlanDefinition,
+} from '@/lib/rate-limit-tiers'
 
 // ---------------------------------------------------------------------------
 // API key management
@@ -329,12 +337,22 @@ export async function checkRateLimit(
  * Combined middleware: authenticate + rate limit + extract client IP.
  * Returns NextResponse (error) on failure, or { auth, ip, rateLimitHeaders } on success.
  *
- * Rate limit headers (X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset)
- * are included in success responses by the calling route.
+ * Two-tier rate limiting:
+ *   1. Per-minute (per-tenant + IP) — short-burst protection
+ *   2. Monthly quota (per-tenant) — plan-tier enforcement (Developer: 1K, Growth: 100K, Enterprise: ∞)
+ *
+ * Rate limit headers (X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset,
+ * X-RateLimit-Quota-Limit, X-RateLimit-Quota-Remaining, X-Plan-Tier) are included
+ * in success responses by the calling route.
+ *
+ * Pass `billable: true` for endpoints that should count against the monthly quota
+ * (session/verify, session/init). Pass `billable: false` for read-only endpoints
+ * (audit read, health, metrics).
  */
 export async function requireApiKey(
   req: NextRequest,
   requiredScope: string = '*',
+  opts: { billable?: boolean } = {},
 ): Promise<
   | { ok: true; auth: AuthResult; ip: string; rateLimitHeaders: Record<string, string> }
   | { ok: false; response: NextResponse }
@@ -362,19 +380,77 @@ export async function requireApiKey(
     }
   }
 
-  // Rate limit
   const tenant = await db.tenant.findUnique({ where: { id: auth.tenantId! } })
-  const limit = tenant?.rateLimitPerMin ?? 60
-  const rl = await checkRateLimit(auth.tenantId!, ip, limit)
-
-  const rateLimitHeaders: Record<string, string> = {
-    'X-RateLimit-Limit': String(rl.limit),
-    'X-RateLimit-Remaining': String(rl.remaining),
-    'X-RateLimit-Reset': String(Math.floor(rl.resetAt / 1000)),
+  if (!tenant) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { success: false, error: 'Tenant not found', code: 'TENANT_NOT_FOUND' },
+        { status: 404 },
+      ),
+    }
   }
 
+  const plan = getPlan(tenant.planTier)
+
+  // --- Per-minute rate limit (per-tenant + IP) ---
+  const perMinLimit = await getEffectivePerMinuteLimit(auth.tenantId!, tenant.rateLimitPerMin)
+  const rl = await checkRateLimit(auth.tenantId!, ip, perMinLimit)
+
+  // --- Monthly quota check (only for billable endpoints) ---
+  let monthlyUsage: MonthlyUsageResult | null = null
+  if (opts.billable) {
+    monthlyUsage = await getMonthlyUsage(auth.tenantId!, tenant.planTier)
+    if (monthlyUsage.limitReached) {
+      rateLimitHitsTotal.inc({ tenant_id: auth.tenantId!, reason: 'monthly_quota' })
+      // Calculate seconds until month reset
+      const now = new Date()
+      const nextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1))
+      const retryAfter = Math.ceil((nextMonth.getTime() - now.getTime()) / 1000)
+
+      const headers = buildRateLimitHeaders({
+        perMinuteLimit: perMinLimit,
+        perMinuteRemaining: rl.remaining,
+        perMinuteResetAt: rl.resetAt,
+        plan,
+        monthlyRemaining: 0,
+      })
+
+      return {
+        ok: false,
+        response: NextResponse.json(
+          {
+            success: false,
+            error: 'Monthly API quota exceeded',
+            code: 'MONTHLY_QUOTA_EXCEEDED',
+            retryAfter,
+            plan: plan.tier,
+            monthlyLimit: plan.monthlyLimit,
+            used: monthlyUsage.count,
+            resetAt: nextMonth.toISOString(),
+          },
+          {
+            status: 429,
+            headers: {
+              'Retry-After': String(retryAfter),
+              ...headers,
+            },
+          },
+        ),
+      }
+    }
+  }
+
+  const rateLimitHeaders: Record<string, string> = buildRateLimitHeaders({
+    perMinuteLimit: perMinLimit,
+    perMinuteRemaining: rl.remaining,
+    perMinuteResetAt: rl.resetAt,
+    plan,
+    monthlyRemaining: monthlyUsage?.remaining ?? plan.monthlyLimit,
+  })
+
   if (!rl.allowed) {
-    rateLimitHitsTotal.inc({ tenant_id: auth.tenantId! })
+    rateLimitHitsTotal.inc({ tenant_id: auth.tenantId!, reason: 'per_minute' })
     const retryAfter = Math.ceil((rl.resetAt - Date.now()) / 1000)
     return {
       ok: false,

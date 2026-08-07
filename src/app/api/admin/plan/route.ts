@@ -1,23 +1,33 @@
 /**
- * GET /api/admin/usage/plan — Get current plan + spending limits + monthly usage
- * PUT /api/admin/usage/plan — Update spending limit + alert threshold
+ * GET /api/admin/plan
+ * Returns the current tenant's plan tier + monthly usage + spending limit config.
  *
- * DEPRECATED: This route is kept for backward compatibility. The new
- * /api/admin/plan endpoint is the canonical source of plan info.
- * This route proxies to the new lib/rate-limit-tiers module.
+ * PUT /api/admin/plan
+ * Update plan-related config (spending limit, alert threshold, plan tier).
+ *
+ * Plan tier change requires admin role. Spending limit + alert threshold
+ * can be set by any tenant admin.
+ *
+ * NOTE: In production, plan tier changes would be tied to Stripe subscription
+ * updates. Here we allow direct tier changes for demo/testing purposes.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { requirePlatformSession } from '@/lib/platform-session'
 import { appendAudit } from '@/lib/audit'
-import { getPlan, getMonthlyUsage, updateTenantPlan } from '@/lib/rate-limit-tiers'
+import {
+  getPlan,
+  getMonthlyUsage,
+  updateTenantPlan,
+  type PlanTier,
+} from '@/lib/rate-limit-tiers'
 import { z } from 'zod'
 
 const PlanUpdateSchema = z.object({
-  spendingLimitUsd: z.number().min(0).max(100000).optional(),
-  alertThresholdPct: z.number().min(0).max(100).optional(),
   planTier: z.enum(['developer', 'growth', 'enterprise']).optional(),
+  spendingLimitUsd: z.number().min(0).max(1_000_000).optional(),
+  alertThresholdPct: z.number().min(0).max(100).optional(),
 })
 
 export async function GET(req: NextRequest) {
@@ -26,7 +36,12 @@ export async function GET(req: NextRequest) {
 
   const tenant = await db.tenant.findUnique({
     where: { id: session.tenantId },
-    select: { planTier: true, spendingLimitUsd: true, alertThresholdPct: true },
+    select: {
+      planTier: true,
+      spendingLimitUsd: true,
+      alertThresholdPct: true,
+      rateLimitPerMin: true,
+    },
   })
 
   if (!tenant) {
@@ -36,10 +51,16 @@ export async function GET(req: NextRequest) {
   const plan = getPlan(tenant.planTier)
   const usage = await getMonthlyUsage(session.tenantId, tenant.planTier)
 
+  // Calculate spending metrics
   const estimatedCost = usage.count * plan.pricePerAuth
   const spendingPct = tenant.spendingLimitUsd > 0
     ? (estimatedCost / tenant.spendingLimitUsd) * 100
     : 0
+
+  // Days until month reset
+  const now = new Date()
+  const nextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1))
+  const daysUntilReset = Math.ceil((nextMonth.getTime() - now.getTime()) / (24 * 60 * 60 * 1000))
 
   return NextResponse.json({
     success: true,
@@ -48,18 +69,26 @@ export async function GET(req: NextRequest) {
       tierName: plan.displayName,
       pricePerAuth: plan.pricePerAuth,
       monthlyLimit: plan.monthlyLimit,
+      perMinuteLimit: plan.perMinuteLimit,
       features: plan.features,
+      accentColor: plan.accentColor,
     },
-    usage: {
-      authsThisMonth: usage.count,
-      estimatedCost: parseFloat(estimatedCost.toFixed(2)),
+    config: {
       spendingLimitUsd: tenant.spendingLimitUsd,
       alertThresholdPct: tenant.alertThresholdPct,
+      customPerMinuteLimit: tenant.rateLimitPerMin,
+    },
+    usage: {
+      monthKey: usage.monthKey,
+      authsThisMonth: usage.count,
+      estimatedCost: parseFloat(estimatedCost.toFixed(2)),
       spendingPct: parseFloat(spendingPct.toFixed(1)),
       authsRemaining: usage.remaining,
       usedPct: usage.usedPct === -1 ? 0 : parseFloat(usage.usedPct.toFixed(1)),
-      overLimit: estimatedCost >= tenant.spendingLimitUsd,
+      limitReached: usage.limitReached,
       alertTriggered: usage.alertTriggered,
+      daysUntilReset,
+      resetsAt: nextMonth.toISOString(),
     },
   })
 }
@@ -78,20 +107,30 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ success: false, error: validation.error.issues[0]?.message }, { status: 400 })
   }
 
+  const { planTier, spendingLimitUsd, alertThresholdPct } = validation.data
+
   await updateTenantPlan(
     session.tenantId,
-    (validation.data.planTier ?? 'growth') as 'developer' | 'growth' | 'enterprise',
+    (planTier ?? 'developer') as PlanTier,
     {
-      spendingLimitUsd: validation.data.spendingLimitUsd,
-      alertThresholdPct: validation.data.alertThresholdPct,
+      spendingLimitUsd,
+      alertThresholdPct,
     },
   )
 
   await appendAudit({
     tenantId: session.tenantId,
     eventType: 'key.rotated',
-    payload: { action: 'plan_updated', ...validation.data },
+    payload: {
+      action: 'plan_updated',
+      planTier,
+      spendingLimitUsd,
+      alertThresholdPct,
+    },
   })
 
-  return NextResponse.json({ success: true, message: 'Plan updated' })
+  return NextResponse.json({
+    success: true,
+    message: planTier ? `Plan updated to ${planTier}` : 'Plan settings updated',
+  })
 }

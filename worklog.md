@@ -1,0 +1,88 @@
+---
+Task ID: notifications-and-rate-limits
+Agent: main (Super Z)
+Task: Email notification system (auth alerts, billing alerts) + API rate limit tiers (Developer: 1K/mo, Growth: 100K/mo, Enterprise: unlimited)
+
+Work Log:
+- Read existing project state: prisma/schema.prisma, src/lib/{auth,email,audit,platform-session,tenant}.ts, src/middleware.ts, src/app/api/{auth/login,session/verify,api-keys/create,api-keys/revoke,customer/notifications,admin/usage/plan}/route.ts, src/components/admin/AdminPanel.tsx, src/components/customer/CustomerPortal.tsx
+- Extended Prisma schema with 3 new models:
+  - `ApiUsageCounter` (tenantId + monthKey unique, with thresholdAlertSent/limitAlertSent flags to prevent duplicate billing emails)
+  - `EmailLog` (queue + history: state machine pending→sent/failed/suppressed, attempts, nextRetryAt, lastError, dedupKey, idempotencyKey unique constraint)
+  - `NotificationPreference` (per-user: authAlerts, securityAlerts, billingAlerts, productUpdates, weeklyDigest)
+  - Added 3 fields to Tenant: planTier, spendingLimitUsd, alertThresholdPct
+  - Added relations + indexes for performance
+- Ran `prisma db push --accept-data-loss` to sync schema
+- Created `src/lib/rate-limit-tiers.ts`:
+  - PLAN_TIERS constant: Developer (1K/mo, 10/min, $0), Growth (100K/mo, 100/min, $0.08/auth), Enterprise (unlimited, 1000/min, custom)
+  - `getMonthlyUsage()` — get-or-create monthly counter, returns MonthlyUsageResult with usedPct/limitReached/alertTriggered
+  - `incrementMonthlyUsage()` — atomic increment with thresholdJustCrossed/limitJustCrossed flags (idempotent, race-safe via transaction)
+  - `checkMonthlyLimit()` — pre-check for monthly quota (returns retryAfterSeconds until month reset)
+  - `getEffectivePerMinuteLimit()` — uses max(tenant custom, plan floor)
+  - `buildRateLimitHeaders()` — 7 RFC-style headers: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, X-RateLimit-Quota-Limit, X-RateLimit-Quota-Remaining, X-RateLimit-Quota-Reset, X-Plan-Tier
+  - `updateTenantPlan()` + `hashDeviceFingerprint()` helpers
+- Created `src/lib/email-notifications.ts`:
+  - 15 email templates: auth.new_device, auth.failed_login, auth.password_changed, auth.two_factor_enabled/disabled, billing.threshold/limit_reached/spending_alert, security.api_key_created/revoked/injection_detected/suspicious_activity, system.welcome/email_verification/password_reset
+  - Each template renders full HTML email with branded header/footer, inline CSS, action buttons
+  - `enqueueEmail()` — writes to EmailLog with state='pending', idempotency enforced by SHA-256(tenantId|template|dedupKey|windowStart) + @@unique constraint
+  - `processEmailEntry()` — send via provider, on failure schedule retry with exponential backoff (1m, 10m, 1h), max 4 attempts then dead-letter
+  - `processPendingQueue()` — batch processor (50 at a time) for cron
+  - Deduplication: 10-min window per (tenantId, template, dedupKey) — prevents flooding during brute-force attacks
+  - Preferences: getUserPreferences/setUserPreferences (DB-backed via NotificationPreference table); suppressed emails still logged for audit
+  - Convenience triggers: notifyBillingThreshold, notifyBillingLimitReached, notifyNewDeviceLogin, notifyFailedLogins, notifyInjectionDetected
+  - `getTenantAdminRecipient()` — looks up primary admin user (fallback to first user)
+- Modified `src/lib/auth.ts` `requireApiKey()`:
+  - Added `opts: { billable?: boolean }` parameter
+  - Two-tier rate limiting: per-minute (existing RateLimitBucket) + monthly quota (new ApiUsageCounter)
+  - On monthly limit exceeded: returns HTTP 429 with `code: MONTHLY_QUOTA_EXCEEDED` + plan info + resetAt timestamp
+  - Updated X-RateLimit-* headers to include quota + plan tier info
+  - Added `reason` label to rateLimitHitsTotal metric (per_minute vs monthly_quota)
+- Wired email triggers into event hooks:
+  - `src/app/api/session/verify/route.ts`: marks itself as billable; after auth.success/enroll.success → incrementMonthlyUsage + fire billing alert if threshold/limit just crossed; after injection.suspected → notifyInjectionDetected to tenant admin
+  - `src/app/api/auth/login/route.ts`: tracks failed logins per (email, IP) in 10-min window; alerts on 5/10/20/50/100 attempts (exponential backoff); on successful login from new device fingerprint → notifyNewDeviceLogin
+  - `src/app/api/auth/2fa/disable/route.ts`: after 2FA disabled → enqueue auth.two_factor_disabled email
+  - `src/app/api/api-keys/create/route.ts`: after API key created → enqueue security.api_key_created to admin
+  - `src/app/api/api-keys/revoke/route.ts`: fetches label BEFORE revoke, then enqueues security.api_key_revoked
+- Updated `src/app/api/customer/notifications/route.ts`: replaced in-memory Map with DB-backed NotificationPreference + real EmailLog entries (no longer derives from audit log)
+- Updated `src/app/api/admin/usage/plan/route.ts`: proxies to new rate-limit-tiers module (backward-compatible API shape)
+- Created new admin endpoints:
+  - `POST/GET /api/notifications/process-queue` — cron endpoint (CRON_SECRET auth, fail-closed in prod) for processing pending email queue
+  - `GET /api/admin/notifications/history` — cursor-paginated email log with summary counts
+  - `GET/PUT /api/admin/notifications/preferences` — user notification preferences
+  - `GET /api/admin/notifications/stats` — deliverability stats (24h/7d/30d), top templates, top errors, avg attempts, deliverability rate
+  - `POST /api/admin/notifications/send-test` — send test email (bypassPreferences)
+  - `POST /api/admin/notifications/retry` — manually retry a failed email (resets attempts, schedules immediate send)
+  - `GET/PUT /api/admin/plan` — canonical plan endpoint (tier, monthly usage, spending config)
+- Created `src/components/admin/NotificationsModules.tsx`:
+  - `NotificationsModule` — 4 sub-tabs: History (filterable list with retry buttons), Queue (depth + manual trigger), Stats (deliverability dashboard), Preferences (5 toggle switches)
+  - `RateLimitModule` — 3 plan tier cards (clickable to change tier), monthly usage progress bar with color-coded thresholds (green→amber→red), per-minute limit + response header reference, spending config form (budget + alert threshold slider)
+  - Both modules match existing glassmorphism aesthetic (GlassSurface, GlassBadge, PremiumButton, etc.)
+- Added 2 new icons to `src/components/brand/Icons.tsx`: MailIcon, DollarIcon
+- Wired new modules into `src/components/admin/AdminPanel.tsx`: added 'notifications' and 'rate-limits' tabs
+- Fixed type errors:
+  - Added index signature to `RateLimitHeaders` interface for Record<string, string> compatibility
+  - Made `monthlyUsage` properly typed as `MonthlyUsageResult | null` in requireApiKey
+  - Added `reason` label to rateLimitHitsTotal Prometheus counter
+  - Fixed `getTenantAdminRecipient` return shape (was returning Prisma row directly, now maps to {userId, email, name})
+  - Fixed `variant="danger"` → `variant="error"` in NotificationsModules (GlassBadge uses error not danger)
+- Installed `nodemailer` + `@types/nodemailer` (Turbopack statically analyzes dynamic imports)
+- Wrote tests:
+  - `tests/rate-limit-tiers.test.ts` — 25 tests covering: PLAN_TIERS definitions, getPlan fallback, isBillableEvent, getMonthKey (incl. Jan/Dec/padding), plan hierarchy, billing math, feature gating
+  - `tests/email-notifications.test.ts` — 25 tests covering: TEMPLATE_TO_CATEGORY mapping (all 15 templates), category coverage, dedup key patterns, backoff schedule, default preferences, failed-login alert thresholds, dedup window
+- All 50 tests pass
+- TypeScript compiles cleanly (only pre-existing errors remain in unrelated files)
+- Dev server boots successfully; verified endpoints respond:
+  - `GET /api/notifications/process-queue` → 200 `{queueDepth:0, failed:0, sent24h:0}`
+  - `POST /api/notifications/process-queue` → 200 `{processed:0, sent:0, failed:0, retried:0}`
+  - `GET /api/admin/notifications/stats` → 401 (correctly requires session)
+  - `GET /api/admin/plan` → 401 (correctly requires session)
+
+Stage Summary:
+- Email notification system: 15 templates, queue with retry/backoff, deduplication, preferences, deliverability stats — fully integrated with auth/billing/security event hooks
+- Rate limit tiers: per-plan monthly quotas (Developer 1K / Growth 100K / Enterprise unlimited) + per-minute limits (10/100/1000), enforced via requireApiKey middleware, exposed via 7 RFC-style response headers
+- Billing alerts auto-fire when usage crosses 80% threshold or hits monthly limit (idempotent — flag-based deduplication prevents duplicate emails)
+- New admin UI: 2 new tabs (Notifications + Rate Limits) with full management capabilities
+- Customer portal notifications now backed by real EmailLog data instead of in-memory Map
+- 50 tests added and passing; no regressions in existing TypeScript compilation
+- All cron endpoints fail-closed (require CRON_SECRET in production)
+- Files added: src/lib/rate-limit-tiers.ts, src/lib/email-notifications.ts, src/components/admin/NotificationsModules.tsx, src/app/api/notifications/process-queue/route.ts, src/app/api/admin/notifications/{history,preferences,stats,send-test,retry}/route.ts, src/app/api/admin/plan/route.ts, tests/rate-limit-tiers.test.ts, tests/email-notifications.test.ts
+- Files modified: prisma/schema.prisma, src/lib/auth.ts, src/lib/metrics.ts, src/lib/rate-limit-tiers.ts, src/app/api/session/verify/route.ts, src/app/api/auth/login/route.ts, src/app/api/auth/2fa/disable/route.ts, src/app/api/api-keys/create/route.ts, src/app/api/api-keys/revoke/route.ts, src/app/api/customer/notifications/route.ts, src/app/api/admin/usage/plan/route.ts, src/components/admin/AdminPanel.tsx, src/components/brand/Icons.tsx

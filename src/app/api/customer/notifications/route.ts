@@ -5,73 +5,70 @@
  * PUT /api/customer/notifications
  * Update notification preferences.
  *
- * Notifications are derived from audit log events — no separate table needed.
+ * Notifications are sourced from the EmailLog table (real emails sent/received).
+ * Preferences are stored in the NotificationPreference table.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
 import { requirePlatformSession } from '@/lib/platform-session'
+import {
+  getUserPreferences,
+  setUserPreferences,
+} from '@/lib/email-notifications'
+import { db } from '@/lib/db'
 import { z } from 'zod'
-
-// In-memory notification preferences (production: DB or Redis)
-const notifPrefs = new Map<string, {
-  authAlerts: boolean
-  securityAlerts: boolean
-  billingAlerts: boolean
-  productUpdates: boolean
-}>()
-
-const defaultPrefs = {
-  authAlerts: true,
-  securityAlerts: true,
-  billingAlerts: true,
-  productUpdates: false,
-}
 
 const PrefsSchema = z.object({
   authAlerts: z.boolean().optional(),
   securityAlerts: z.boolean().optional(),
   billingAlerts: z.boolean().optional(),
   productUpdates: z.boolean().optional(),
+  weeklyDigest: z.boolean().optional(),
 })
 
 export async function GET(req: NextRequest) {
   const session = await requirePlatformSession(req)
   if (!session.ok) return session.response
 
-  const prefs = notifPrefs.get(session.user.id) ?? defaultPrefs
+  const prefs = await getUserPreferences(session.user.id)
 
-  // Generate notifications from recent audit events
+  // Fetch the user's recent emails (sent to their address)
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-  const events = await db.auditLog.findMany({
-    where: {
-      tenantId: session.tenantId,
-      createdAt: { gte: sevenDaysAgo },
-    },
-    orderBy: { createdAt: 'desc' },
-    take: 20,
-    select: { eventType: true, payload: true, createdAt: true },
+  const user = await db.platformUser.findUnique({
+    where: { id: session.user.id },
+    select: { email: true },
   })
 
-  const notifications = events.map((e) => {
-    let payload: any = {}
-    try { payload = JSON.parse(e.payload) } catch {}
-    const isSecurity = ['injection.suspected', 'auth.failure', 'rate_limit.exceeded'].includes(e.eventType)
-    const isBilling = ['enroll.success'].includes(e.eventType)
-    return {
-      id: e.createdAt.getTime().toString(),
-      type: isSecurity ? 'security' : isBilling ? 'billing' : 'auth',
-      eventType: e.eventType,
-      message: getNotificationMessage(e.eventType, payload),
-      timestamp: e.createdAt,
-      read: false,
-    }
-  }).filter((n) => {
-    if (n.type === 'security' && !prefs.securityAlerts) return false
-    if (n.type === 'billing' && !prefs.billingAlerts) return false
-    if (n.type === 'auth' && !prefs.authAlerts) return false
-    return true
-  })
+  const emails = user
+    ? await db.emailLog.findMany({
+        where: {
+          tenantId: session.tenantId,
+          toAddress: user.email,
+          createdAt: { gte: sevenDaysAgo },
+          state: { in: ['sent', 'suppressed'] }, // don't show pending/failed
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 30,
+        select: {
+          id: true,
+          template: true,
+          subject: true,
+          state: true,
+          createdAt: true,
+          sentAt: true,
+        },
+      })
+    : []
+
+  const notifications = emails.map((e) => ({
+    id: e.id,
+    template: e.template,
+    type: getNotificationType(e.template),
+    subject: e.subject,
+    message: getNotificationMessage(e.template),
+    timestamp: e.sentAt ?? e.createdAt,
+    read: false, // read state would require a separate table
+  }))
 
   return NextResponse.json({
     success: true,
@@ -91,22 +88,34 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ success: false, error: validation.error.issues[0]?.message }, { status: 400 })
   }
 
-  const current = notifPrefs.get(session.user.id) ?? defaultPrefs
-  const updated = { ...current, ...validation.data }
-  notifPrefs.set(session.user.id, updated)
-
+  const updated = await setUserPreferences(session.user.id, session.tenantId, validation.data)
   return NextResponse.json({ success: true, preferences: updated })
 }
 
-function getNotificationMessage(eventType: string, payload: any): string {
-  switch (eventType) {
-    case 'auth.success': return `Authentication successful (liveness: ${payload.liveness?.overall ? (payload.liveness.overall * 100).toFixed(0) + '%' : 'N/A'})`
-    case 'auth.failure': return `Authentication failed: ${payload.reason ?? 'unknown'}`
-    case 'enroll.success': return 'Biometric template enrolled successfully'
-    case 'injection.suspected': return `Security alert: ${payload.reasons?.join(', ') ?? 'injection detected'}`
-    case 'rate_limit.exceeded': return 'Rate limit exceeded — possible abuse detected'
-    case 'template.revoked': return 'Your biometric template was deleted'
-    case 'key.rotated': return 'Tenant signing key was rotated'
-    default: return eventType
+function getNotificationType(template: string): 'auth' | 'security' | 'billing' | 'product' {
+  if (template.startsWith('auth.')) return 'auth'
+  if (template.startsWith('security.')) return 'security'
+  if (template.startsWith('billing.')) return 'billing'
+  return 'product'
+}
+
+function getNotificationMessage(template: string): string {
+  const messages: Record<string, string> = {
+    'auth.new_device': 'New device signed in to your account',
+    'auth.failed_login': 'Multiple failed login attempts detected',
+    'auth.password_changed': 'Your password was changed',
+    'auth.two_factor_enabled': 'Two-factor authentication enabled',
+    'auth.two_factor_disabled': 'Two-factor authentication disabled',
+    'billing.threshold': 'Monthly usage threshold reached',
+    'billing.limit_reached': 'Monthly API quota exhausted',
+    'billing.spending_alert': 'Spending limit alert',
+    'security.api_key_created': 'New API key created',
+    'security.api_key_revoked': 'API key revoked',
+    'security.injection_detected': 'Presentation attack detected',
+    'security.suspicious_activity': 'Suspicious activity detected',
+    'system.welcome': 'Welcome to VeriFace Edge',
+    'system.email_verification': 'Email verification',
+    'system.password_reset': 'Password reset request',
   }
+  return messages[template] ?? template
 }

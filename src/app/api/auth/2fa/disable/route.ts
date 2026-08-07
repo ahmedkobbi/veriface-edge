@@ -13,6 +13,7 @@ import { verifyTOTP, verifyBackupCode, consumeBackupCode } from '@/lib/totp'
 import { appendAudit } from '@/lib/audit'
 import { logger } from '@/lib/logger'
 import { z } from 'zod'
+import { enqueueEmail } from '@/lib/email-notifications'
 
 const Disable2FASchema = z.object({
   code: z.string().min(1),
@@ -81,6 +82,18 @@ export async function POST(req: NextRequest) {
   })
 
   logger.info({ userId: session.user.id }, '2FA disabled')
+
+  // Fire 2FA-disabled email (best-effort, non-blocking)
+  void enqueueEmail({
+    tenantId: session.tenantId,
+    to: user.email,
+    userId: user.id,
+    template: 'auth.two_factor_disabled',
+    vars: {
+      name: user.name ?? undefined,
+      timestamp: new Date().toISOString(),
+    },
+  }).catch((e) => logger.warn({ error: e }, 'Failed to enqueue 2FA-disabled email'))
 
   return NextResponse.json({
     success: true,

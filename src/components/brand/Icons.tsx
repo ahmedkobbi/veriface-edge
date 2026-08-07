@@ -331,6 +331,24 @@ export function SparklesIcon(props: IconProps) {
   )
 }
 
+export function MailIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M3 7 L12 13 L21 7" />
+    </svg>
+  )
+}
+
+export function DollarIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M12 2 V22" />
+      <path d="M17 6 H9.5 A3.5 3.5 0 0 0 9.5 13 H14.5 A3.5 3.5 0 0 1 14.5 20 H7" />
+    </svg>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Logo Components
 // ---------------------------------------------------------------------------
