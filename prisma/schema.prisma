@@ -18,7 +18,11 @@ model Tenant {
   id            String   @id @default(cuid())
   name          String
   /// Ed25519 public key (hex) used to verify SDK-signed JWTs.
+  /// Legacy — being migrated to ML-DSA-87 (post-quantum).
   signingPubKey String
+  /// ML-DSA-87 (Dilithium5) public key (hex, 5184 chars) — post-quantum.
+  /// NULL = tenant hasn't migrated to post-quantum signatures yet.
+  pqSigningPubKey String?
   /// HMAC secret (hex) for webhook payload signing.
   webhookSecret String
   /// KMS key identifier for tenant DEK (Data Encryption Key).
@@ -41,6 +45,16 @@ model Tenant {
   spendingLimitUsd Float  @default(100)
   /// Alert when monthly usage crosses this percentage of monthly limit (0–100).
   alertThresholdPct Int   @default(80)
+  /// Whether to require ZK proofs (vs Pedersen commitment fallback).
+  /// true = require Groth16 ZK proof (post-quantum, zero-knowledge)
+  /// false = accept legacy Pedersen commitment (migration mode)
+  requireZkProof Boolean @default(false)
+  /// Signature verification mode:
+  /// 'hybrid-any' = accept Ed25519 OR ML-DSA-87 (migration phase 1)
+  /// 'hybrid-all' = require BOTH Ed25519 AND ML-DSA-87 (migration phase 2)
+  /// 'mldsa87-only' = require ML-DSA-87 only (post-quantum, Ed25519 deprecated)
+  /// 'ed25519-only' = legacy (no post-quantum)
+  signatureMode String   @default("hybrid-any")
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
