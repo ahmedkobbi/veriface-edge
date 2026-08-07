@@ -1,0 +1,39 @@
+{
+  "name": "VeriFace Edge — Privacy-First Facial Authentication",
+  "short_name": "VeriFace",
+  "description": "Military-grade, privacy-first web facial authentication SDK. All biometric computation runs in your browser via WebGPU + WASM.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#10b981",
+  "orientation": "portrait-primary",
+  "categories": ["security", "developer", "business"],
+  "icons": [
+    {
+      "src": "/brand/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/brand/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/brand/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Try Demo",
+      "short_name": "Demo",
+      "description": "Launch the live face authentication demo",
+      "url": "/#demo-console"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="vf-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="50%" stop-color="#06b6d4"/>
+      <stop offset="100%" stop-color="#3b82f6"/>
+    </linearGradient>
+    <linearGradient id="vf-grad-2" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.6"/>
+    </linearGradient>
+  </defs>
+  <path d="M32 2 L58 16 L58 42 L32 62 L6 42 L6 16 Z" fill="url(#vf-grad)" opacity="0.15"/>
+  <path d="M32 2 L58 16 L58 42 L32 62 L6 42 L6 16 Z" stroke="url(#vf-grad)" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M32 10 L50 20 L50 38 L32 52 L14 38 L14 20 Z" stroke="url(#vf-grad)" stroke-width="1" stroke-linejoin="round" opacity="0.4"/>
+  <ellipse cx="32" cy="28" rx="8" ry="9" fill="url(#vf-grad-2)" opacity="0.85"/>
+  <path d="M20 48 Q20 38 32 38 Q44 38 44 48" fill="url(#vf-grad-2)" opacity="0.85"/>
+  <line x1="14" y1="34" x2="50" y2="34" stroke="url(#vf-grad)" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+  <circle cx="14" cy="34" r="1.5" fill="#10b981"/>
+  <circle cx="50" cy="34" r="1.5" fill="#3b82f6"/>
+  <rect x="29" y="44" width="6" height="5" rx="1" fill="url(#vf-grad)" opacity="0.9"/>
+  <path d="M30 44 V42 Q30 40 32 40 Q34 40 34 42 V44" stroke="url(#vf-grad)" stroke-width="1" fill="none"/>
+</svg>
