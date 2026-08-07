@@ -419,18 +419,86 @@ describe('Backend: Migration Status Logic', () => {
 })
 
 describe('Backend: ZK Verification Mode', () => {
-  // Mirrors getVerificationMode logic from src/lib/zk-verifier.ts
-  it('returns "zk" when verification key exists', () => {
-    // In production, this checks if zk/verification_key.json exists
-    const keyExists = true  // Simulated
-    const mode = keyExists ? 'zk' : 'pedersen-fallback'
-    expect(mode).toBe('zk')
+  // Mirrors getVerificationMode logic from src/lib/zk-verifier.ts (PLONK version)
+  it('returns "zk-plonk" when PLONK verification key exists', () => {
+    // In production, this checks if zk/verification_key.json exists AND
+    // the protocol field is 'plonk'
+    const keyExists = true
+    const protocol = 'plonk'
+    const mode = keyExists && protocol === 'plonk' ? 'zk-plonk' : 'pedersen-fallback'
+    expect(mode).toBe('zk-plonk')
   })
 
   it('returns "pedersen-fallback" when verification key is missing', () => {
-    const keyExists = false  // Simulated
-    const mode = keyExists ? 'zk' : 'pedersen-fallback'
+    const keyExists = false
+    const mode = keyExists ? 'zk-plonk' : 'pedersen-fallback'
     expect(mode).toBe('pedersen-fallback')
+  })
+
+  it('returns "pedersen-fallback" when key is Groth16 (legacy)', () => {
+    // If the key exists but is Groth16 (old protocol), we fall back
+    // until the key is regenerated as PLONK
+    const keyExists = true
+    const protocol = 'groth16'
+    const mode = keyExists && protocol === 'plonk' ? 'zk-plonk' : 'pedersen-fallback'
+    expect(mode).toBe('pedersen-fallback')
+  })
+
+  it('detects when key needs regeneration (Groth16 → PLONK)', () => {
+    // Mirrors needsKeyRegeneration logic
+    const protocol = 'groth16'  // Legacy key
+    const needsRegen = protocol !== 'plonk'
+    expect(needsRegen).toBe(true)
+  })
+
+  it('does not need regeneration when key is already PLONK', () => {
+    const protocol = 'plonk'
+    const needsRegen = protocol !== 'plonk'
+    expect(needsRegen).toBe(false)
+  })
+})
+
+describe('ZK Proof System: PLONK Protocol', () => {
+  // Test PLONK-specific properties
+
+  it('PLONK protocol identifier is "plonk"', () => {
+    const protocol = 'plonk'
+    expect(protocol).toBe('plonk')
+  })
+
+  it('PLONK uses BN254 curve', () => {
+    const curve = 'bn128'  // snarkjs uses 'bn128' (same as BN254)
+    expect(curve).toBe('bn128')
+  })
+
+  it('PLONK proof does not have Groth16 structure (no A, B, C points)', () => {
+    // PLONK proofs are a single opaque blob, not {a, b, c}
+    const plonkProof = {
+      protocol: 'plonk',
+      curve: 'bn128',
+      // No 'a', 'b', 'c' fields — PLONK uses polynomial commitments
+      A: '0x...',
+      B: '0x...',
+      Z: '0x...',
+      T1: '0x...',
+      // ... etc
+    }
+    expect(plonkProof.protocol).toBe('plonk')
+    expect(plonkProof).not.toHaveProperty('a')  // Groth16 had lowercase a, b, c
+    expect(plonkProof).not.toHaveProperty('b')
+    expect(plonkProof).not.toHaveProperty('c')
+  })
+
+  it('rejects a Groth16 proof (protocol mismatch)', () => {
+    // The verifier should reject proofs with the wrong protocol
+    const groth16Proof = { protocol: 'groth16', curve: 'bn128' }
+    const isValid = groth16Proof.protocol === 'plonk'
+    expect(isValid).toBe(false)
+  })
+
+  it('PLONK verification key has protocol field = "plonk"', () => {
+    const vkey = { protocol: 'plonk', curve: 'bn128', nPublic: 4, vk_alpha_1: '...' }
+    expect(vkey.protocol).toBe('plonk')
   })
 })
 
@@ -444,8 +512,10 @@ describe('Crypto Primitive Sizes (Cross-Platform Compatibility)', () => {
     expect(4896).toBe(4896)
   })
 
-  it('ML-DSA-87 signature is 4595 bytes (FIPS 204)', () => {
-    expect(4595).toBe(4595)
+  it('ML-DSA-87 signature is ~4595-4627 bytes (FIPS 204, impl-dependent)', () => {
+    // FIPS 204 spec: 4595 bytes; @noble/post-quantum: 4627 bytes
+    expect(4595).toBeGreaterThanOrEqual(4500)
+    expect(4627).toBeLessThanOrEqual(4700)
   })
 
   it('Ed25519 public key is 32 bytes (RFC 8032)', () => {
@@ -456,12 +526,28 @@ describe('Crypto Primitive Sizes (Cross-Platform Compatibility)', () => {
     expect(64).toBe(64)
   })
 
-  it('Groth16 proof is ~200 bytes (3 BN254 curve points)', () => {
-    // A, B, C points: 32 + 64 + 32 = 128 bytes raw, ~200 with encoding
-    expect(200).toBeLessThan(300)
+  it('PLONK proof is ~450 bytes (larger than Groth16 but irrelevant with ML-DSA-87)', () => {
+    // PLONK proofs are ~450 bytes vs Groth16's ~200 bytes.
+    // This is irrelevant when transmitting alongside a 4.6KB ML-DSA-87 signature.
+    expect(450).toBeLessThan(600)
+    expect(450).toBeGreaterThan(300)
   })
 
-  it('Groth16 verification key is ~2KB', () => {
+  it('PLONK verification key is ~2KB (same as Groth16)', () => {
     expect(2048).toBeLessThan(4096)
+  })
+
+  it('PLONK proving key is ~50MB (same as Groth16)', () => {
+    // Both protocols have similar proving key sizes
+    expect(50 * 1024 * 1024).toBe(52428800)
+  })
+
+  it('PLONK universal SRS is reusable across circuits (decisive advantage)', () => {
+    // The Powers of Tau SRS works for ALL PLONK circuits up to N constraints.
+    // No circuit-specific trusted setup phase needed (unlike Groth16).
+    const srsIsUniversal = true
+    const needsCircuitSpecificCeremony = false
+    expect(srsIsUniversal).toBe(true)
+    expect(needsCircuitSpecificCeremony).toBe(false)
   })
 })

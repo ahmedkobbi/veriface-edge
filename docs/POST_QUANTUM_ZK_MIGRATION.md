@@ -5,7 +5,7 @@
 VeriFace Edge has been upgraded with two military-grade cryptographic advancements:
 
 1. **Post-quantum signatures**: ML-DSA-87 (Dilithium5) from CRYSTALS — NIST FIPS 204
-2. **Zero-knowledge proofs**: Groth16 zk-SNARKs — replacing Pedersen commitments
+2. **Zero-knowledge proofs**: PLONK zk-SNARKs — replacing Pedersen commitments (universal trusted setup, future-proof)
 
 These upgrades ensure VeriFace Edge remains secure against quantum computers (Shor's algorithm) and provide true zero-knowledge verification (the backend never sees the embedding).
 
@@ -105,19 +105,39 @@ if (result.valid) {
 
 ---
 
-## 2. Zero-Knowledge Proofs (Groth16)
+## 2. Zero-Knowledge Proofs (PLONK)
 
 ### What Changed
 
-| Property | Pedersen Commitment (legacy) | Groth16 ZK Proof |
-|----------|------------------------------|-------------------|
-| What the backend sees | Commitment (32 bytes) | Proof (~200 bytes) + public inputs |
+| Property | Pedersen Commitment (legacy) | PLONK ZK Proof |
+|----------|------------------------------|-----------------|
+| What the backend sees | Commitment (32 bytes) | Proof (~450 bytes) + public inputs |
 | Can backend verify embedding? | Recomputes hash + compares | Verifies proof without seeing embedding |
 | Zero-knowledge | Partial (commitment hides embedding) | Full (proof reveals nothing) |
-| Proof size | 32 bytes (commitment) | ~200 bytes |
-| Verify time | ~0.1ms (hash comparison) | ~5ms (pairing check) |
-| Proving time | ~0ms (hash computation) | ~2-5 seconds |
-| Trusted setup | Not required | Required (Groth16) |
+| Proof size | 32 bytes (commitment) | ~450 bytes |
+| Verify time | ~0.1ms (hash comparison) | ~15ms (pairing check) |
+| Proving time | ~0ms (hash computation) | ~3-7 seconds |
+| Trusted setup | Not required | Universal (PLONK) — one ceremony for all circuits |
+| Setup updatable? | N/A | ✅ Yes (anyone can contribute to the SRS) |
+
+### Why PLONK (not Groth16)?
+
+PLONK was chosen over Groth16 for a decisive advantage: **universal trusted setup**.
+
+| Property | Groth16 | PLONK |
+|----------|---------|-------|
+| Trusted setup | Circuit-specific (new ceremony per circuit change) | **Universal** (one ceremony for all circuits up to N constraints) |
+| Setup updatable? | ❌ No | ✅ Yes (anyone can contribute randomness) |
+| Proof size | ~200 bytes | ~450 bytes |
+| Verification | ~5ms | ~15ms |
+| Proving time | ~2-5s | ~3-7s |
+| Industry adoption | Legacy | Aztec, zkSync, Scroll, Polygon zkEVM, Halo2 |
+
+**The proof size + verification time differences are irrelevant** for VeriFace Edge:
+- The 250-byte difference (200 → 450) is negligible when transmitting alongside a 4.6KB ML-DSA-87 signature
+- The 10ms verification difference is negligible at human-interaction speeds (full API request takes 50-100ms)
+
+**The universal setup is decisive**: When the circuit changes (adding selective disclosure, revocation proofs, attribute proofs, etc.), PLONK just needs `snarkjs plonk setup` with the existing SRS — no new ceremony. Groth16 would require a full re-ceremony.
 
 ### How It Works
 
@@ -128,10 +148,10 @@ Backend: recompute BLAKE3(decrypted_embedding || nonce) and compare
 ```
 Problem: Backend must decrypt the embedding to verify the commitment — so the backend sees the embedding.
 
-**ZK (Groth16)**:
+**ZK (PLONK)**:
 ```
-SDK → Backend: proof = Groth16.prove(circuit, {embedding, nonce, commitment, threshold})
-Backend: Groth16.verify(vkey, publicInputs, proof)
+SDK → Backend: proof = PLONK.prove(circuit, {embedding, nonce, commitment, threshold})
+Backend: PLONK.verify(vkey, publicInputs, proof)
 ```
 The proof guarantees the SDK knows an embedding that:
 1. Hashes to the commitment (honesty proof)
@@ -155,7 +175,7 @@ The Circom circuit (`circom/face_verification.circom`) implements:
 
 ### Trusted Setup
 
-Groth16 requires a circuit-specific trusted setup ceremony:
+Groth16 requires a circuit-specific trusted setup ceremony. PLONK uses a **universal** setup — one ceremony covers all circuits:
 
 ```bash
 # Run the ceremony (one-time)
@@ -219,10 +239,10 @@ const result = await vf.verifyWithZkProof(proof)
 
 | Operation | Time | Notes |
 |-----------|------|-------|
-| Proof generation | 2-5 seconds | One-time per auth, runs in Web Worker |
-| Proof verification | 5ms | Backend, constant-time |
+| Proof generation | 3-7 seconds | One-time per auth, runs in Web Worker |
+| Proof verification | 15ms | Backend, constant-time |
 | Proving key load | 200ms | One-time, cached in IndexedDB |
-| Proof size | ~200 bytes | Smaller than a tweet |
+| Proof size | ~450 bytes | Larger than Groth16 but irrelevant with ML-DSA-87 signature |
 | Proving key size | ~50MB | Cached, loaded from CDN |
 
 ---
@@ -234,7 +254,7 @@ With both upgrades enabled, VeriFace Edge provides:
 | Property | Implementation |
 |----------|---------------|
 | Post-quantum signatures | ML-DSA-87 (FIPS 204, NIST Level 5) |
-| Zero-knowledge verification | Groth16 zk-SNARK (backend never sees embedding) |
+| Zero-knowledge verification | PLONK zk-SNARK (universal setup, backend never sees embedding) |
 | Hybrid migration | Ed25519 + ML-DSA-87 (defense in depth) |
 | Forward security | If Ed25519 is broken, ML-DSA-87 still holds |
 | Privacy | Embeding never leaves the client (even encrypted) |
@@ -278,7 +298,8 @@ With both upgrades enabled, VeriFace Edge provides:
 
 - [FIPS 204: Module-Lattice-Based Digital Signature Standard](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.204.pdf)
 - [CRYSTALS-Dilithium](https://pq-crystals.org/dilithium/)
-- [Groth16 Paper](https://eprint.iacr.org/2016/260)
+- [PLONK Paper](https://eprint.iacr.org/2019/953) (Gabizon, Williamson, Ciobotaru)
+- [Groth16 Paper](https://eprint.iacr.org/2016/260) (legacy reference)
 - [snarkjs Documentation](https://github.com/iden3/snarkjs)
 - [Circom Documentation](https://docs.circom.io/)
 - [Noble Post-Quantum](https://github.com/paulmillr/noble-post-quantum)
