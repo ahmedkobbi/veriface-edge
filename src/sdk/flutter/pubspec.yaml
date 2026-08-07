@@ -1,0 +1,40 @@
+name: veriface_edge
+description: Privacy-first facial authentication SDK for Flutter. Implements the full crypto stack (Ed25519, X25519, AES-256-GCM, BLAKE3, HKDF) and API client in pure Dart.
+version: 1.0.0
+homepage: https://veriface.io
+repository: https://github.com/veriface/edge-sdk-flutter
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+  flutter: ">=3.10.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # Crypto primitives
+  cryptography: ^2.7.0
+  # HTTP client
+  http: ^1.2.0
+  # State management
+  flutter_riverpod: ^2.4.0
+  # Camera (uses platform camera2/AVFoundation)
+  camera: ^0.10.5+9
+  # Face detection (ML Kit)
+  google_mlkit_face_detection: ^0.10.0
+  # Path provider (for ONNX model cache)
+  path_provider: ^2.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+  build_runner: ^2.4.0
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: io.veriface.sdk
+        pluginClass: VeriFaceEdgePlugin
+      ios:
+        pluginClass: VeriFaceEdgePlugin
