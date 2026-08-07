@@ -1,0 +1,56 @@
+# VeriFace Edge — Dependabot Configuration
+#
+# Checks for outdated dependencies and opens PRs to update them.
+
+version: 2
+
+updates:
+  # npm dependencies (Next.js, Prisma, @noble, etc.)
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: UTC
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - npm
+    commit-message:
+      prefix: chore
+      include: scope
+    reviewers:
+      - ahmedkobbi
+    groups:
+      # Group minor/patch updates together to reduce PR noise
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+      # Major version bumps get their own PR (breaking changes)
+      major:
+        update-types:
+          - major
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: chore
+      include: scope
+
+  # Docker base images
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - docker

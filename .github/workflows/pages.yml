@@ -1,0 +1,64 @@
+# VeriFace Edge — GitHub Pages Deployment
+#
+# Builds the Next.js static export and deploys it to GitHub Pages.
+# The public marketing site (hero, features, pricing, FAQ) is the
+# Pages content — the API routes require a real backend deployment.
+#
+# Live URL: https://ahmedkobbi.github.io/veriface-edge/
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build static site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3'
+
+      - run: bun install --frozen-lockfile
+
+      - run: bun run db:generate
+
+      - name: Build static export
+        run: bun run build
+        env:
+          NEXT_PUBLIC_APP_URL: https://ahmedkobbi.github.io/veriface-edge/
+          NODE_ENV: production
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .next/standalone
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

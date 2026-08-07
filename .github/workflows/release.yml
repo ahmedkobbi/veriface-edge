@@ -1,0 +1,132 @@
+# VeriFace Edge — Release Workflow
+#
+# Triggered when a tag matching `v*` is pushed.
+# Creates a GitHub Release with auto-generated notes + source archives.
+#
+# Usage:
+#   git tag v1.0.0
+#   git push origin v1.0.0
+#
+# OR trigger manually from the Actions tab → "Run workflow".
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., 1.0.0 — without v prefix)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history for changelog generation
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=v${{ inputs.version }}" >> $GITHUB_OUTPUT
+            echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build changelog
+        id: changelog
+        run: |
+          # Generate changelog from commits since last tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -z "$PREV_TAG" ]; then
+            # First release — full changelog
+            CHANGELOG=$(git log --pretty=format:"- %s (%h)" HEAD)
+          else
+            CHANGELOG=$(git log --pretty=format:"- %s (%h)" ${PREV_TAG}..HEAD)
+          fi
+          # Escape for GitHub Actions
+          CHANGELOG="${CHANGELOG//'%'/'%25'}"
+          CHANGELOG="${CHANGELOG//$'\n'/'%0A'}"
+          CHANGELOG="${CHANGELOG//$'\r'/'%0D'}"
+          echo "changelog=$CHANGELOG" >> $GITHUB_OUTPUT
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: VeriFace Edge ${{ steps.version.outputs.tag }}
+          body: |
+            ## What's New in ${{ steps.version.outputs.tag }}
+
+            ### Changes
+            ${{ steps.changelog.outputs.changelog }}
+
+            ---
+
+            ## 📦 Artifacts
+
+            Source code archives are attached below (`tar.gz` + `zip`).
+
+            ## 🚀 Installation
+
+            ### From Source
+            ```bash
+            curl -L https://github.com/ahmedkobbi/veriface-edge/archive/refs/tags/${{ steps.version.outputs.tag }}.tar.gz | tar xz
+            cd veriface-edge-${{ steps.version.outputs.version }}
+            bun install
+            cp .env.example .env
+            # Edit .env
+            bun run db:push
+            bun run dev
+            ```
+
+            ### Docker (coming soon)
+            ```bash
+            docker pull ghcr.io/ahmedkobbi/veriface-edge:${{ steps.version.outputs.version }}
+            ```
+
+            ## 📋 Platform SDKs
+
+            | Platform | Status |
+            |----------|--------|
+            | Web (`@veriface/edge-sdk`) | ✅ Production |
+            | React Native (`@veriface/edge-react-native`) | ✅ Production |
+            | iOS (`VeriFaceEdge` SPM) | 🧪 Beta |
+            | Android (`io.veriface:edge-sdk-android`) | 🧪 Beta |
+            | Flutter (`veriface_edge`) | 🧪 Beta |
+
+            ## 🔒 Security
+
+            All releases are signed. To verify:
+            ```bash
+            curl -sL https://github.com/ahmedkobbi/veriface-edge/releases/download/${{ steps.version.outputs.tag }}/SHA256SUMS.txt
+            ```
+
+            ## 📖 Documentation
+
+            - Live demo: https://ahmedkobbi.github.io/veriface-edge/
+            - Full docs: [/docs](https://github.com/ahmedkobbi/veriface-edge/tree/main/docs)
+            - Threat model: [docs/THREAT_MODEL.md](https://github.com/ahmedkobbi/veriface-edge/blob/main/docs/THREAT_MODEL.md)
+
+            ## 🙏 Acknowledgments
+
+            Built with [Next.js](https://nextjs.org/), [Prisma](https://www.prisma.io/), [Bun](https://bun.sh/), [@noble/curves](https://github.com/paulmillr/noble-curves), [MediaPipe](https://mediapipe.dev/), and [Tailwind CSS](https://tailwindcss.com/).
+
+            ---
+
+            **Full Changelog**: https://github.com/ahmedkobbi/veriface-edge/commits/${{ steps.version.outputs.tag }}
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+          generate_release_notes: true

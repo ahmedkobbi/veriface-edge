@@ -1,6 +1,34 @@
 # VeriFace Edge — Privacy-First Web Facial Authentication SDK
 
+[![CI](https://github.com/ahmedkobbi/veriface-edge/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ahmedkobbi/veriface-edge/actions/workflows/ci.yml)
+[![Release](https://github.com/ahmedkobbi/veriface-edge/actions/workflows/release.yml/badge.svg)](https://github.com/ahmedkobbi/veriface-edge/releases)
+[![GitHub Pages](https://github.com/ahmedkobbi/veriface-edge/actions/workflows/pages.yml/badge.svg)](https://ahmedkobbi.github.io/veriface-edge/)
+[![License: MIT](https://img.shields.io/github/license/ahmedkobbi/veriface-edge?color=blue)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0%2B-blue?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js&logoColor=white)](https://nextjs.org/)
+[![Prisma](https://img.shields.io/badge/Prisma-6.x-2D3748?logo=prisma&logoColor=white)](https://www.prisma.io/)
+[![Bun](https://img.shields.io/badge/Bun-1.3%2B-fafafa?logo=bun&logoColor=black)](https://bun.sh/)
+[![Tests](https://img.shields.io/badge/tests-162%20passing-brightgreen)](tests/)
+[![SDKs](https://img.shields.io/badge/SDKs-Web%20%7C%20RN%20%7C%20iOS%20%7C%20Android%20%7C%20Flutter-orange)](src/sdk/)
+[![Security](https://img.shields.io/badge/security-audited-success?logo=shield&logoColor=white)](docs/THREAT_MODEL.md)
+[![Privacy](https://img.shields.io/badge/privacy-zero--knowledge-blueviolet?logo=shield&logoColor=white)](#privacy-contract)
+[![Stars](https://img.shields.io/github/stars/ahmedkobbi/veriface-edge?style=social)](https://github.com/ahmedkobbi/veriface-edge/stargazers)
+[![Last Commit](https://img.shields.io/github/last-commit/ahmedkobbi/veriface-edge)](https://github.com/ahmedkobbi/veriface-edge/commits/main)
+[![Repo Size](https://img.shields.io/github/repo-size/ahmedkobbi/veriface-edge)](https://github.com/ahmedkobbi/veriface-edge)
+[![Issues](https://img.shields.io/github/issues/ahmedkobbi/veriface-edge)](https://github.com/ahmedkobbi/veriface-edge/issues)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?logo=github)](CONTRIBUTING.md)
+
 > **Production-grade, military-grade security.** No raw facial images ever leave the browser. The backend receives only a zero-knowledge Pedersen commitment and a signed JWT — it cannot reconstruct your face even if compromised.
+
+## 📚 Documentation
+
+- 🏠 **Live Demo & Marketing Site**: https://ahmedkobbi.github.io/veriface-edge/
+- 📖 **Full Documentation**: [/docs](docs/)
+- 🔒 **Threat Model (STRIDE)**: [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)
+- 🎨 **Brand Guidelines**: [docs/BRAND_GUIDELINES.md](docs/BRAND_GUIDELINES.md)
+- 🚀 **Production Checklist**: [docs/PRODUCTION_CHECKLIST.md](docs/PRODUCTION_CHECKLIST.md)
+- 🔑 **Secrets Rotation Guide**: [docs/SECRETS_ROTATION.md](docs/SECRETS_ROTATION.md)
+- 📱 **Multi-Platform SDK Guide**: [src/sdk/PLATFORMS.md](src/sdk/PLATFORMS.md)
 
 ## What's Included
 
@@ -275,3 +303,101 @@ curl -X POST http://localhost:3000/api/templates/delete \
 ## License
 
 Proprietary. All rights reserved.
+
+---
+
+## Privacy Contract
+
+All 5 platform SDKs (Web, React Native, iOS, Android, Flutter) obey the same privacy contract:
+
+1. **All biometric computation runs on-device** — face detection, rPPG, PAD, and embedding never leave the device.
+2. **Only cryptographic payloads are sent to the backend**:
+   - Pedersen commitment: `BLAKE3(embedding || nonce)` — proves the SDK computed the embedding honestly
+   - Encrypted embedding: AES-256-GCM with the session ECDH key
+   - Scalar liveness scores (rPPG, PAD) and anti-injection summary
+3. **End-to-end encrypted**: The session key is derived via X25519 ECDH between SDK and backend — even the backend can't decrypt without the ephemeral session key.
+4. **No face frames, no embeddings, no PII are ever stored on disk** by the SDK.
+5. **Telemetry is opt-in and anonymous** — error codes only, no biometric data.
+
+## Multi-Platform SDKs
+
+| Platform | Package | Camera | Face Detection | Crypto |
+|----------|---------|--------|----------------|--------|
+| **Web** | `@veriface/edge-sdk` | getUserMedia | MediaPipe | @noble |
+| **React Native** | `@veriface/edge-react-native` | WebView | WebView | WebView |
+| **iOS** | `VeriFaceEdge` (SPM) | AVFoundation | Vision | CryptoKit + BLAKE3 |
+| **Android** | `io.veriface:edge-sdk-android` | CameraX | ML Kit | BouncyCastle |
+| **Flutter** | `veriface_edge` | `camera` plugin | `google_mlkit_face_detection` | `cryptography` package |
+
+See [src/sdk/PLATFORMS.md](src/sdk/PLATFORMS.md) for the full comparison + quick start for each platform.
+
+## Quick Start (Web SDK)
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/ahmedkobbi/veriface-edge.git
+cd veriface-edge
+
+# 2. Install dependencies
+bun install
+
+# 3. Set up environment
+cp .env.example .env
+# Edit .env and set VERIFACE_SERVER_SIGNING_KEY (openssl rand -hex 32)
+
+# 4. Initialize the database
+bun run db:push
+
+# 5. Start the dev server
+bun run dev
+# Open http://localhost:3000
+```
+
+```ts
+// 6. Use the SDK in your app
+import { VeriFace } from '@veriface/edge-sdk'
+
+const vf = new VeriFace({
+  tenantId: 'tnt_...',
+  apiKey: 'vf_live_...',
+})
+
+const result = await vf.authenticate(externalUserId: 'user_123')
+console.log('Auth token:', result.authPayload?.token)
+```
+
+## Releases
+
+Download the latest release from the [Releases page](https://github.com/ahmedkobbi/veriface-edge/releases):
+
+- **Source code** (tar.gz + zip) — auto-generated by GitHub
+- **Docker image** — `docker pull ghcr.io/ahmedkobbi/veriface-edge:latest`
+- **npm packages** (coming soon):
+  - `@veriface/edge-sdk` — Web SDK
+  - `@veriface/edge-react-native` — React Native SDK
+- **Swift Package** (coming soon):
+  - `https://github.com/ahmedkobbi/veriface-edge.git` (SPM)
+- **Maven** (coming soon):
+  - `io.veriface:edge-sdk-android:1.0.0`
+- **Pub** (coming soon):
+  - `veriface_edge: ^1.0.0`
+
+## Contributing
+
+Contributions are welcome! Please read the [Contributing Guide](CONTRIBUTING.md) before opening a PR.
+
+- 🐛 [Report a bug](https://github.com/ahmedkobbi/veriface-edge/issues/new?labels=bug&template=bug-report.md)
+- ✨ [Request a feature](https://github.com/ahmedkobbi/veriface-edge/issues/new?labels=enhancement&template=feature-request.md)
+- 🔒 [Report a security vulnerability](https://github.com/ahmedkobbi/veriface-edge/security/advisories/new)
+- 💬 [Start a discussion](https://github.com/ahmedkobbi/veriface-edge/discussions)
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=ahmedkobbi/veriface-edge&type=Date)](https://star-history.com/#ahmedkobbi/veriface-edge&Date)
+
+---
+
+<p align="center">
+  <sub>Built with ❤️ by <a href="https://github.com/ahmedkobbi">ahmedkobbi</a></sub><br>
+  <sub>If this project helps you, please consider <a href="https://github.com/ahmedkobbi/veriface-edge/stargazers">⭐ starring the repo</a>!</sub>
+</p>
