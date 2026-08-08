@@ -93,3 +93,9 @@ build/
 /zk/*.sym
 /zk/test_*
 /models/
+
+# MPC ceremony (large SRS files — distributed via S3/IPFS, not git)
+/ceremony/*.ptau
+/ceremony/*.zkey
+/ceremony/*.log
+# (state.json + TRANSCRIPT.md ARE committed — they're small + public audit)
