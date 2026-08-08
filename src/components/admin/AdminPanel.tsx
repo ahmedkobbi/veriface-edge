@@ -15,8 +15,9 @@ import { SamlConfigModule } from '@/components/admin/SamlConfigModule'
 import { AuditStreamModule, MultiRegionModule } from '@/components/admin/StreamRegionModules'
 import { NotificationsModule, RateLimitModule } from '@/components/admin/NotificationsModules'
 import { TelemetryModule, ExperimentsModule } from '@/components/admin/TelemetryExperimentModules'
+import { BillingDashboardModule, AttributeCredentialsModule, BackupHistoryModule, SecurityCenterModule } from '@/components/admin/FeatureModules'
 
-type AdminTab = 'dashboard' | 'usage' | 'security' | 'templates' | 'analytics' | 'team' | 'integrations' | 'compliance' | 'developer' | 'settings' | 'fraud' | 'policies' | 'webhooks' | 'branding' | 'embed' | 'status' | 'audit-stream' | 'regions' | 'notifications' | 'rate-limits' | 'telemetry' | 'experiments'
+type AdminTab = 'dashboard' | 'usage' | 'security' | 'templates' | 'analytics' | 'team' | 'integrations' | 'compliance' | 'developer' | 'settings' | 'fraud' | 'policies' | 'webhooks' | 'branding' | 'embed' | 'status' | 'audit-stream' | 'regions' | 'notifications' | 'rate-limits' | 'telemetry' | 'experiments' | 'billing' | 'attributes' | 'backups' | 'sec-center'
 
 interface PlatformUser {
   id: string; email: string; name: string | null; role: string
@@ -67,6 +68,10 @@ export function AdminPanel() {
     { id: 'rate-limits', label: 'Rate Limits', icon: <ZapIcon className="w-3.5 h-3.5" /> },
     { id: 'telemetry', label: 'Telemetry', icon: <ActivityIcon className="w-3.5 h-3.5" /> },
     { id: 'experiments', label: 'Experiments', icon: <ZapIcon className="w-3.5 h-3.5" /> },
+    { id: 'billing', label: 'Billing', icon: <ZapIcon className="w-3.5 h-3.5" /> },
+    { id: 'attributes', label: 'Credentials', icon: <KeyIcon className="w-3.5 h-3.5" /> },
+    { id: 'backups', label: 'Backups', icon: <DownloadIcon className="w-3.5 h-3.5" /> },
+    { id: 'sec-center', label: 'Sec Center', icon: <ShieldLockIcon className="w-3.5 h-3.5" /> },
   ]
 
   return (
@@ -114,6 +119,10 @@ export function AdminPanel() {
       {tab === 'rate-limits' && <RateLimitModule tenantId={user.tenantId} userRole={user.role} />}
       {tab === 'telemetry' && <TelemetryModule tenantId={user.tenantId} />}
       {tab === 'experiments' && <ExperimentsModule tenantId={user.tenantId} userRole={user.role} />}
+      {tab === 'billing' && <BillingDashboardModule tenantId={user.tenantId} />}
+      {tab === 'attributes' && <AttributeCredentialsModule tenantId={user.tenantId} userRole={user.role} />}
+      {tab === 'backups' && <BackupHistoryModule tenantId={user.tenantId} />}
+      {tab === 'sec-center' && <SecurityCenterModule tenantId={user.tenantId} />}
     </div>
   )
 }
