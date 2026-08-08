@@ -16,6 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { secureRandomHex, sha256Hex } from '@/lib/crypto-server'
+import { logger } from '@/lib/logger'
 
 interface AuthorizeParams {
   client_id: string
@@ -28,21 +29,31 @@ interface AuthorizeParams {
 }
 
 // In-memory authorization code store (production: Redis)
-const authCodes = new Map<string, {
+// SECURITY FIX (B-02): Separated into two stages:
+//   1. "pending" entries (renderToken) — created by GET, NO auth code yet
+//   2. "completed" entries (authCode) — created by POST after face auth succeeds
+// Previously, the GET handler generated the auth code immediately, allowing
+// an attacker to obtain a valid code without completing face auth.
+interface PendingAuthRequest {
   tenantId: string
   clientId: string
   redirectUri: string
   externalUserId: string
   nonce?: string
-  sessionId?: string
+  state?: string
   expiresAt: number
-}>()
+  // Set by POST after face auth succeeds
+  authCode?: string
+  sessionId?: string
+  codeIssued: boolean
+}
+const authCodes = new Map<string, PendingAuthRequest>()
 
 // Cleanup expired codes every 5 minutes
 setInterval(() => {
   const now = Date.now()
-  for (const [code, entry] of authCodes) {
-    if (entry.expiresAt < now) authCodes.delete(code)
+  for (const [key, entry] of authCodes) {
+    if (entry.expiresAt < now) authCodes.delete(key)
   }
 }, 5 * 60 * 1000).unref?.()
 
@@ -90,38 +101,29 @@ export async function GET(req: NextRequest) {
     }, { status: 400 })
   }
 
-  // For this demo: render the face auth page with OIDC context.
-  // In production, this would render a full-page SDK that captures the face,
-  // then on success, generates an auth code and redirects.
-  //
-  // The auth code is pre-generated and embedded in the page; the SDK
-  // completes the face auth and POSTs to /oauth/authorize (this endpoint)
-  // to confirm and trigger the redirect.
-
-  const code = secureRandomHex(16)
-  authCodes.set(code, {
+  // SECURITY FIX (B-02): Do NOT generate the auth code here.
+  // Previously, the code was generated and returned in this GET response,
+  // allowing an attacker to obtain a valid code without completing face auth.
+  // Now: we issue a "render token" that the client must POST back with a
+  // valid session_id AFTER face auth succeeds. Only then is the auth code
+  // generated.
+  const renderToken = secureRandomHex(16)
+  authCodes.set(renderToken, {
     tenantId: tenant.id,
     clientId: params.client_id,
     redirectUri: params.redirect_uri,
     externalUserId: params.external_user_id ?? '',
     nonce: params.nonce,
+    state: params.state,
     expiresAt: Date.now() + 10 * 60 * 1000, // 10 min
+    codeIssued: false,
   })
 
-  // Build redirect URL with code + state
-  const redirectUrl = new URL(params.redirect_uri)
-  redirectUrl.searchParams.set('code', code)
-  if (params.state) redirectUrl.searchParams.set('state', params.state)
-
-  // For headless / API testing: return the code directly as JSON.
-  // In production, this would redirect to the face auth page, which
-  // on success would redirect to the redirectUrl above.
   return NextResponse.json({
     success: true,
-    code,
-    redirect_uri: redirectUrl.toString(),
+    renderToken,
     expires_in: 600,
-    message: 'Authorize this request by completing face authentication. On success, redirect the user to redirect_uri.',
+    message: 'Complete face authentication, then POST renderToken + session_id to obtain an authorization code.',
   })
 }
 
@@ -129,47 +131,82 @@ export async function GET(req: NextRequest) {
  * POST /oauth/authorize
  * Complete the authorization after face auth succeeds.
  *
- * Body: { code: string, session_id: string }
+ * Body: { renderToken: string, session_id: string }
  *
- * Verifies the face auth session was successful, then confirms the auth code.
+ * SECURITY FIX (B-02): The auth code is generated HERE, only after verifying
+ * the face auth session was successful. The renderToken from GET is used to
+ * look up the pending request — it is NOT the auth code.
  */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { code, session_id } = body
+    const { renderToken, session_id } = body
 
-    if (!code || !session_id) {
+    if (!renderToken || !session_id) {
       return NextResponse.json({
         error: 'invalid_request',
-        error_description: 'code and session_id required',
+        error_description: 'renderToken and session_id required',
       }, { status: 400 })
     }
 
-    const codeEntry = authCodes.get(code)
-    if (!codeEntry || codeEntry.expiresAt < Date.now()) {
+    const entry = authCodes.get(renderToken)
+    if (!entry || entry.expiresAt < Date.now()) {
       return NextResponse.json({
         error: 'invalid_grant',
-        error_description: 'Authorization code expired or invalid',
+        error_description: 'Authorization request expired or invalid',
+      }, { status: 400 })
+    }
+
+    // SECURITY FIX (B-02): Prevent code re-issuance
+    if (entry.codeIssued) {
+      return NextResponse.json({
+        error: 'invalid_request',
+        error_description: 'Authorization code already issued for this request',
       }, { status: 400 })
     }
 
     // Verify the session completed successfully
     const session = await db.session.findUnique({ where: { id: session_id } })
-    if (!session || session.state !== 'success' || session.tenantId !== codeEntry.tenantId) {
+    if (!session || session.state !== 'success' || session.tenantId !== entry.tenantId) {
       return NextResponse.json({
         error: 'access_denied',
         error_description: 'Face authentication not completed',
       }, { status: 403 })
     }
 
-    // Associate the session ID with the auth code (for /oauth/token to look up)
-    // Do NOT consume the code here — /oauth/token consumes it after exchanging.
-    codeEntry.sessionId = session_id
-    authCodes.set(code, codeEntry)
+    // SECURITY FIX (B-02): Verify the session's targetUserId matches the
+    // externalUserId from the authorize request. This prevents an attacker
+    // from using a different user's session to complete the authorization.
+    if (entry.externalUserId && session.targetUserId !== entry.externalUserId) {
+      logger.warn(
+        { expectedUser: entry.externalUserId, sessionUser: session.targetUserId },
+        'OIDC: session user does not match authorize request user — rejecting',
+      )
+      return NextResponse.json({
+        error: 'access_denied',
+        error_description: 'Session user does not match authorization request',
+      }, { status: 403 })
+    }
+
+    // NOW generate the auth code (after face auth is verified)
+    const authCode = secureRandomHex(32) // 64 hex chars — 256 bits of entropy
+    entry.authCode = authCode
+    entry.sessionId = session_id
+    entry.codeIssued = true
+
+    // Migrate the entry to the authCode key (so /oauth/token can look it up by code)
+    authCodes.set(authCode, entry)
+    // Keep the renderToken entry too (marked as issued) so it can't be reused
+
+    // Build redirect URL
+    const redirectUrl = new URL(entry.redirectUri)
+    redirectUrl.searchParams.set('code', authCode)
+    if (entry.state) redirectUrl.searchParams.set('state', entry.state)
 
     return NextResponse.json({
       success: true,
-      redirect_uri: `${codeEntry.redirectUri}?code=${code}&session_id=${session_id}`,
+      code: authCode,
+      redirect_uri: redirectUrl.toString(),
     })
   } catch (e) {
     return NextResponse.json({

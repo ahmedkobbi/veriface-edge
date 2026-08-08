@@ -379,42 +379,126 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const planTier = session.metadata?.planTier as 'developer' | 'growth' | 'enterprise'
   const interval = session.metadata?.interval as 'month' | 'year'
 
-  // Update subscription record
+  // SECURITY FIX (B-01): Cross-reference metadata.planTier against the actual
+  // Stripe Price paid. The metadata is set server-side at checkout creation,
+  // but an attacker could manipulate it via other Stripe API paths (customer
+  // portal, subscription updates, direct API calls with their own Stripe key).
+  // The price is the source of truth — metadata is advisory.
+  //
+  // We retrieve the full session with line_items expanded, then look up the
+  // plan by the stripePriceId in our BILLING_PLANS mapping. If the metadata
+  // planTier doesn't match the plan associated with the actual price paid,
+  // we reject the webhook.
+  const stripe = getStripe()
+  const fullSession = await stripe.checkout.sessions.retrieve(session.id, {
+    expand: ['line_items'],
+  })
+
+  const lineItem = fullSession.line_items?.data?.[0]
+  if (!lineItem?.price?.id) {
+    logger.error({ sessionId: session.id, tenantId }, 'Checkout completed but no line item price found — rejecting')
+    await appendAudit({
+      tenantId,
+      eventType: 'billing.price_mismatch_rejected',
+      payload: { action: 'no_line_item_price', sessionId: session.id },
+    })
+    return
+  }
+
+  const paidPriceId = lineItem.price.id
+  // Look up which plan this priceId belongs to
+  const expectedPlanEntry = Object.entries(BILLING_PLANS).find(([_, plan]) =>
+    plan.stripePriceIdMonthly === paidPriceId ||
+    plan.stripePriceIdYearly === paidPriceId
+  )
+
+  if (!expectedPlanEntry) {
+    logger.error({ paidPriceId, sessionId: session.id, tenantId }, 'Paid priceId not found in BILLING_PLANS — rejecting')
+    await appendAudit({
+      tenantId,
+      eventType: 'billing.price_mismatch_rejected',
+      payload: { action: 'unknown_price_id', paidPriceId, sessionId: session.id },
+    })
+    return
+  }
+
+  const expectedPlanTier = expectedPlanEntry[0] as 'developer' | 'growth' | 'enterprise'
+  const expectedInterval = lineItem.price.id === expectedPlanEntry[1].stripePriceIdYearly ? 'year' : 'month'
+
+  // CRITICAL: If the metadata planTier doesn't match the plan for the price
+  // that was actually paid, this is a billing bypass attempt.
+  if (expectedPlanTier !== planTier) {
+    logger.error(
+      { expectedPlanTier, metadataPlanTier: planTier, paidPriceId, sessionId: session.id, tenantId },
+      'SECURITY ALERT: Checkout metadata planTier does not match the price paid — billing bypass attempt rejected',
+    )
+    await appendAudit({
+      tenantId,
+      eventType: 'billing.price_mismatch_rejected',
+      payload: {
+        action: 'plan_tier_mismatch',
+        expectedPlanTier,
+        metadataPlanTier: planTier,
+        paidPriceId,
+        sessionId: session.id,
+      },
+    })
+    return  // Do NOT activate the subscription
+  }
+
+  // Also verify the interval matches
+  if (interval && expectedInterval !== interval) {
+    logger.warn(
+      { expectedInterval, metadataInterval: interval, sessionId: session.id },
+      'Checkout interval mismatch — using price-derived interval',
+    )
+  }
+
+  const verifiedPlanTier = expectedPlanTier
+  const verifiedInterval = expectedInterval
+
+  // Update subscription record with the VERIFIED plan tier (not metadata)
   await db.subscription.upsert({
     where: { tenantId },
     create: {
       tenantId,
       stripeCustomerId: session.customer as string,
       stripeSubscriptionId: session.subscription as string,
-      stripePriceId: session.metadata?.priceId,
-      planTier,
-      interval,
+      stripePriceId: paidPriceId,
+      planTier: verifiedPlanTier,
+      interval: verifiedInterval,
       status: 'active',
       stripeCheckoutSessionId: session.id,
     },
     update: {
       stripeCustomerId: session.customer as string,
       stripeSubscriptionId: session.subscription as string,
-      planTier,
-      interval,
+      planTier: verifiedPlanTier,
+      interval: verifiedInterval,
       status: 'active',
     },
   })
 
-  // Update tenant plan tier
+  // Update tenant plan tier with VERIFIED tier
   await db.tenant.update({
     where: { id: tenantId },
-    data: { planTier },
+    data: { planTier: verifiedPlanTier },
   })
 
   await appendAudit({
     tenantId,
-    // SECURITY FIX (L-4): Was 'tenant.created' — this is a billing/payment confirmation event.
     eventType: 'billing.payment_confirmed',
-    payload: { action: 'subscription_activated', planTier, interval, sessionId: session.id },
+    payload: {
+      action: 'subscription_activated',
+      planTier: verifiedPlanTier,
+      interval: verifiedInterval,
+      sessionId: session.id,
+      paidPriceId,
+      verified: true,
+    },
   })
 
-  logger.info({ tenantId, planTier }, 'Subscription activated via Stripe checkout')
+  logger.info({ tenantId, planTier: verifiedPlanTier, paidPriceId }, 'Subscription activated via Stripe checkout (price verified)')
 }
 
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {

@@ -94,15 +94,13 @@ export async function POST(req: NextRequest) {
   if (!authResult.ok) return authResult.response
   const tenantId = authResult.auth.tenantId!
 
-  // Idempotency check
+  // SECURITY FIX (B-04): Idempotency check moved to AFTER signature verification.
+  // Previously, the idempotency check ran before verifyRequestSignature —
+  // an attacker who captured a valid signed request could replay it WITHOUT
+  // the signature headers and still get the cached response (containing the
+  // auth token). Now: the signature is verified first, then we check for a
+  // cached idempotent response.
   const idempotencyKey = extractIdempotencyKey(req)
-  if (idempotencyKey) {
-    const cached = getIdempotentResponse(tenantId, '/api/session/verify', idempotencyKey)
-    if (cached) {
-      logger.info({ tenantId, idempotencyKey }, 'Returning cached idempotent response')
-      return NextResponse.json(cached.body, { status: cached.status })
-    }
-  }
 
   try {
     const rawBodyString = JSON.stringify(await req.json())
@@ -130,6 +128,16 @@ export async function POST(req: NextRequest) {
         { success: false, code: 'INVALID_SIGNATURE', error: `Signature verification failed: ${sigResult.reason}` },
         { status: 401 },
       )
+    }
+
+    // SECURITY FIX (B-04): Idempotency check runs AFTER signature verification.
+    // Only return the cached response if the caller has a valid signature.
+    if (idempotencyKey) {
+      const cached = getIdempotentResponse(tenantId, '/api/session/verify', idempotencyKey)
+      if (cached) {
+        logger.info({ tenantId, idempotencyKey }, 'Returning cached idempotent response (post-sig-verify)')
+        return NextResponse.json(cached.body, { status: cached.status })
+      }
     }
 
     const rawBody = JSON.parse(rawBodyString)

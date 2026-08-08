@@ -18,10 +18,15 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { hmacSha256, utf8, sha256Hex } from '@/lib/crypto-server'
+import { getRedis } from '@/lib/cache/redis-cache'
+import { logger } from '@/lib/logger'
 
 const TIMESTAMP_WINDOW_MS = 5 * 60 * 1000  // ±5 minutes
 
-// In-memory nonce cache (production: Redis with TTL)
+// SECURITY FIX (B-05): In-memory nonce cache retained as L1 fallback for
+// single-instance dev mode. In multi-instance production, Redis (L2) is the
+// authoritative store — without it, an attacker could replay a nonce across
+// different instances (each has its own in-memory cache).
 const seenNonces = new Map<string, number>()
 
 // Cleanup expired nonces every 5 minutes
@@ -31,6 +36,52 @@ setInterval(() => {
     if (ts < cutoff) seenNonces.delete(nonce)
   }
 }, 5 * 60 * 1000).unref?.()
+
+/**
+ * Atomically consume a nonce. Returns true if the nonce was NOT previously
+ * seen (i.e., this is the first use), false if it was already used.
+ *
+ * SECURITY FIX (B-05): Uses Redis SET NX (atomic check-and-set) with TTL
+ * when Redis is available. Falls back to in-memory Map for dev mode.
+ *
+ * The TTL is set to TIMESTAMP_WINDOW_MS * 2 (10 min) — after that, the
+ * nonce is stale anyway (the timestamp window has passed) and can be
+ * safely evicted.
+ */
+async function consumeNonce(nonce: string): Promise<boolean> {
+  // L1: In-memory check (fast path for single-instance)
+  if (seenNonces.has(nonce)) {
+    return false  // Already used
+  }
+
+  // L2: Redis check (multi-instance coordination)
+  const redis = await getRedis()
+  if (redis) {
+    try {
+      const redisKey = `nonce:${nonce}`
+      // SET key value NX EX ttl — atomic check-and-set
+      // Returns 'OK' if the key was set (nonce is new), null if it existed
+      const result = await redis.set(redisKey, String(Date.now()), {
+        NX: true,
+        EX: Math.ceil(TIMESTAMP_WINDOW_MS * 2 / 1000), // 600 seconds
+      })
+      if (result !== 'OK') {
+        // Nonce already in Redis — replay attempt
+        return false
+      }
+      // Nonce consumed in Redis — also mark in L1
+      seenNonces.set(nonce, Date.now())
+      return true
+    } catch (e) {
+      // Redis error — fall back to L1 only (single-instance mode)
+      logger.warn({ error: e, nonce: nonce.slice(0, 8) }, 'Redis nonce check failed — using in-memory only')
+    }
+  }
+
+  // L1 fallback (dev mode or Redis unavailable)
+  seenNonces.set(nonce, Date.now())
+  return true
+}
 
 export interface SignedRequestResult {
   valid: boolean
@@ -70,8 +121,9 @@ export async function verifyRequestSignature(
     return { valid: false, reason: 'TIMESTAMP_OUT_OF_WINDOW' }
   }
 
-  // 2. Check nonce hasn't been used
-  if (seenNonces.has(nonce)) {
+  // 2. Check nonce hasn't been used (SECURITY FIX B-05: atomic Redis check)
+  const nonceAvailable = await consumeNonce(nonce)
+  if (!nonceAvailable) {
     return { valid: false, reason: 'NONCE_REUSE' }
   }
 
@@ -94,9 +146,6 @@ export async function verifyRequestSignature(
   if (diff !== 0) {
     return { valid: false, reason: 'INVALID_SIGNATURE' }
   }
-
-  // 5. Mark nonce as used
-  seenNonces.set(nonce, now)
 
   return { valid: true }
 }

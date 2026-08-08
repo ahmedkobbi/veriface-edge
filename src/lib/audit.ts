@@ -134,6 +134,48 @@ const PII_KEYS = new Set([
   'sessionToken',
   'cookie',
   'authorization',
+  // SECURITY FIX (B-11): Additional PII / sensitive fields that were missing.
+  'sub',              // JWT subject (often externalUserId)
+  'session_id',       // Can correlate to a user
+  'sessionId',
+  'jti',              // JWT ID — can correlate to a session
+  'cosine',           // Biometric match score (sensitive)
+  'cosineSimilarity',
+  'liveness',         // Biometric liveness scores (sensitive)
+  'livenessScore',
+  'rppg',             // rPPG signal data (biometric)
+  'rppgHeartRateBpm',
+  'rppgSnr',
+  'padTexture',       // PAD scores (biometric)
+  'padDepth',
+  'padCombined',
+  'txHash',           // Blockchain tx hash (can de-anonymize crypto payments)
+  'payAddress',       // Crypto payment address
+  'payFrom',          // Crypto source address
+  'stripeCustomerId', // PII (payment identifier)
+  'stripeSubscriptionId',
+  'stripePriceId',
+  'itemId',           // Stripe subscription item ID
+  'subscriptionId',
+  'inviteToken',      // Team invite token (secret)
+  'inviteTokenHash',
+  'revocationToken',  // Crypto-erasure token (secret)
+  'templateSalt',     // DEK derivation salt (secret)
+  'kmsKeyId',         // KMS key identifier
+  'commitment',       // ZK commitment (biometric-derived)
+  'commitmentNonce',
+  'encryptedVector',  // Encrypted embedding (biometric)
+  'iv',               // AES-GCM IV (not secret, but sensitive context)
+  'authTag',
+  'ciphertext',
+  'privateKey',
+  'signingPrivateKey',
+  'signingPubKey',
+  'webhookSecret',
+  'ipnSecret',
+  'passwordHash',
+  'hmacKey',
+  'dedupKey',
 ])
 
 function redactValue(value: unknown): unknown {

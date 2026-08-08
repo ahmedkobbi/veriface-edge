@@ -247,17 +247,54 @@ export function verifyCommitment(
 // Constant-time string comparison
 // ---------------------------------------------------------------------------
 
+/**
+ * Compare two strings in constant time.
+ *
+ * SECURITY FIX (B-06): Previously, this function hashed both inputs with
+ * plain SHA-256 and compared the hex digests. This had two issues:
+ *   1. `sha256Hex` itself takes variable time proportional to input length —
+ *      two inputs of different lengths have different hash computation times,
+ *      leaking length information BEFORE the constant-time comparison.
+ *   2. Plain SHA-256 (not keyed HMAC) enables hash collision inference on
+ *      short secrets if the attacker can observe timing.
+ *
+ * Now: we use Node.js `crypto.timingSafeEqual` on the raw UTF-8 bytes.
+ * If the inputs have different lengths, we pad the shorter one with zeros
+ * to equal length, then compare. The padding ensures:
+ *   - The comparison always processes the same number of bytes (constant time)
+ *   - Different-length inputs always return false (the padding bytes differ)
+ *   - No hash computation (no length-proportional timing leak)
+ */
 export function constantTimeEqual(a: string, b: string): boolean {
-  // To avoid leaking length information, hash both inputs to equal-length
-  // digests before comparing. SHA-256 produces 64 hex chars regardless of input.
-  const hashA = sha256Hex(a)
-  const hashB = sha256Hex(b)
-  if (hashA.length !== hashB.length) return false  // Always equal for SHA-256
-  let diff = 0
-  for (let i = 0; i < hashA.length; i++) {
-    diff |= hashA.charCodeAt(i) ^ hashB.charCodeAt(i)
+  if (typeof a !== 'string' || typeof b !== 'string') return false
+
+  const bufA = utf8.encode(a)
+  const bufB = utf8.encode(b)
+
+  // If lengths differ, pad the shorter one to the longer's length.
+  // The result will be false (padding bytes differ), but the comparison
+  // runs in constant time relative to the max length.
+  const maxLen = Math.max(bufA.length, bufB.length)
+  if (maxLen === 0) return true // Both empty
+
+  const paddedA = new Uint8Array(maxLen)
+  const paddedB = new Uint8Array(maxLen)
+  paddedA.set(bufA)
+  paddedB.set(bufB)
+
+  // Use Node.js crypto.timingSafeEqual — guarantees constant-time comparison
+  // at the CPU level (prevents branch-prediction timing attacks).
+  try {
+    const { timingSafeEqual } = require('node:crypto')
+    return timingSafeEqual(Buffer.from(paddedA), Buffer.from(paddedB))
+  } catch {
+    // Fallback: manual constant-time comparison (if node:crypto unavailable)
+    let diff = 0
+    for (let i = 0; i < maxLen; i++) {
+      diff |= paddedA[i] ^ paddedB[i]
+    }
+    return diff === 0
   }
-  return diff === 0
 }
 
 // ---------------------------------------------------------------------------
