@@ -145,7 +145,11 @@ export async function PUT(req: NextRequest) {
 
   const { dsrId, status, resolution } = validation.data
 
-  // Update the DSR audit entry's payload
+  // SECURITY FIX (C-8): Never update existing audit log entries.
+  // Previously, the DSR payload was directly modified, breaking the
+  // hash chain. Now we only append a NEW audit entry referencing the
+  // original DSR — the chain remains intact.
+
   const dsrEvent = await db.auditLog.findFirst({
     where: { id: dsrId, tenantId: session.tenantId },
   })
@@ -154,19 +158,18 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ success: false, error: 'DSR not found' }, { status: 404 })
   }
 
-  const payload = JSON.parse(dsrEvent.payload)
-  payload.status = status
-  if (resolution) payload.resolution = resolution
-
-  await db.auditLog.update({
-    where: { id: dsrId },
-    data: { payload: JSON.stringify(payload) },
-  })
-
+  // Append a NEW audit entry (DO NOT modify the original)
   await appendAudit({
     tenantId: session.tenantId,
     eventType: 'consent.recorded',
-    payload: { dsr: true, action: 'resolved', dsrId, status, resolution },
+    payload: {
+      dsr: true,
+      action: 'resolved',
+      originalDsrId: dsrId,  // Reference to original (not modifying it)
+      status,
+      resolution,
+      resolvedAt: new Date().toISOString(),
+    },
   })
 
   return NextResponse.json({ success: true, status })

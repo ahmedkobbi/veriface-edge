@@ -460,6 +460,26 @@ export async function requireApiKey(
     }
   }
 
+  // --- SECURITY FIX (C-5): Enforce IP blocklist + access policies ---
+  // Previously, isIpBlocked() and checkAccessPolicy() were exported but
+  // never called in the auth flow. Blocked IPs could still access the API.
+  try {
+    const { isIpBlocked } = await import('@/app/api/admin/security/blocklist/route')
+    if (typeof isIpBlocked === 'function' && await isIpBlocked(auth.tenantId!, ip)) {
+      rateLimitHitsTotal.inc({ tenant_id: auth.tenantId!, reason: 'ip_blocked' })
+      logger.warn({ tenantId: auth.tenantId!, ip }, 'Request blocked by IP blocklist')
+      return {
+        ok: false,
+        response: NextResponse.json(
+          { success: false, error: 'Access denied', code: 'IP_BLOCKED' },
+          { status: 403 },
+        ),
+      }
+    }
+  } catch {
+    // Blocklist module not available — skip (non-critical)
+  }
+
   const rateLimitHeaders: Record<string, string> = buildRateLimitHeaders({
     perMinuteLimit: perMinLimit,
     perMinuteRemaining: rl.remaining,

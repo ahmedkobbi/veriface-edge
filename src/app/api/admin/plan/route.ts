@@ -25,7 +25,9 @@ import {
 import { z } from 'zod'
 
 const PlanUpdateSchema = z.object({
-  planTier: z.enum(['developer', 'growth', 'enterprise']).optional(),
+  // SECURITY FIX (C-3): planTier removed from direct update — plan changes
+  // must only happen via Stripe webhook (checkout.session.completed).
+  // Allowing direct plan tier changes enables billing bypass.
   spendingLimitUsd: z.number().min(0).max(1_000_000).optional(),
   alertThresholdPct: z.number().min(0).max(100).optional(),
 })
@@ -107,23 +109,23 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ success: false, error: validation.error.issues[0]?.message }, { status: 400 })
   }
 
-  const { planTier, spendingLimitUsd, alertThresholdPct } = validation.data
+  const { spendingLimitUsd, alertThresholdPct } = validation.data
 
-  await updateTenantPlan(
-    session.tenantId,
-    (planTier ?? 'developer') as PlanTier,
-    {
-      spendingLimitUsd,
-      alertThresholdPct,
+  // SECURITY FIX (C-3): Plan tier changes only via Stripe webhook.
+  // Only spending limit + alert threshold can be changed directly.
+  await db.tenant.update({
+    where: { id: session.tenantId },
+    data: {
+      ...(spendingLimitUsd !== undefined ? { spendingLimitUsd } : {}),
+      ...(alertThresholdPct !== undefined ? { alertThresholdPct } : {}),
     },
-  )
+  })
 
   await appendAudit({
     tenantId: session.tenantId,
     eventType: 'key.rotated',
     payload: {
-      action: 'plan_updated',
-      planTier,
+      action: 'plan_settings_updated',
       spendingLimitUsd,
       alertThresholdPct,
     },
@@ -131,6 +133,6 @@ export async function PUT(req: NextRequest) {
 
   return NextResponse.json({
     success: true,
-    message: planTier ? `Plan updated to ${planTier}` : 'Plan settings updated',
+    message: 'Plan settings updated',
   })
 }

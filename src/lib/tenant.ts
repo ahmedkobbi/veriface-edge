@@ -153,6 +153,16 @@ export async function enrollTemplate(input: EnrollmentInput): Promise<{
           revocationToken,
         },
       })
+    } else {
+      // SECURITY FIX (C-6): Update revocationToken on re-enrollment.
+      // Previously, a new templateSalt was generated but the user's
+      // revocationToken in the DB was not updated → DEK mismatch →
+      // AES-GCM decryption always failed on verification.
+      // Now we update the user's revocationToken to match the new salt.
+      user = await tx.user.update({
+        where: { id: user.id },
+        data: { revocationToken },
+      })
     }
 
     // Delete prior template if exists (re-enrollment replaces)

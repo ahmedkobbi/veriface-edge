@@ -53,9 +53,16 @@ export async function POST(req: NextRequest) {
       const remaining = consumeBackupCode(hashedCodes, index)
       verified = true
 
+      // SECURITY FIX (C-9): Persist the consumed backup codes.
+      // Previously, the remaining array was computed but never saved
+      // to the DB — allowing the same backup code to be reused.
+      await db.platformUser.update({
+        where: { id: session.user.id },
+        data: { twoFactorBackupCodes: JSON.stringify(remaining) },
+      })
+
       // If this was the last backup code, warn the user
       if (remaining.length === 0) {
-        // Still disable — but log a warning
         logger.warn({ userId: session.user.id }, '2FA disabled using last backup code')
       }
     }

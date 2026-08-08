@@ -90,6 +90,16 @@ export async function GET(req: NextRequest) {
   if (!id) {
     return NextResponse.json({ success: false, error: 'id parameter required' }, { status: 400 })
   }
+
+  // SECURITY FIX (C-4): Enforce tenant scope — API key can only access
+  // its own tenant's metadata. Prevents cross-tenant data leakage (IDOR).
+  if (id !== authResult.auth.tenantId) {
+    return NextResponse.json(
+      { success: false, error: 'Forbidden: cannot access other tenants', code: 'TENANT_SCOPE_VIOLATION' },
+      { status: 403 },
+    )
+  }
+
   const tenant = await getTenant(id)
   if (!tenant) {
     return NextResponse.json({ success: false, error: 'Tenant not found' }, { status: 404 })

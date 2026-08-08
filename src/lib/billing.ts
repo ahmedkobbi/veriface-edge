@@ -570,12 +570,50 @@ export async function reportUsageToStripe(tenantId: string): Promise<boolean> {
 
   if (!usage) return false
 
-  // For metered billing, we'd create a usage record on the subscription item
-  // This requires the subscription to have a metered price (not fixed price)
-  // For now, we just log the usage — Stripe will bill at the end of the period
-  logger.info({ tenantId, monthKey, count: usage.count }, 'Usage reported to Stripe')
+  // SECURITY FIX (C-12): Actually report usage to Stripe.
+  // Previously, this function logged but never called the Stripe API —
+  // tenants on metered billing were never charged for actual usage.
+  //
+  // We retrieve the subscription's first item and create a usage record.
+  // This requires the Stripe Price to be configured as 'metered' (not 'licensed').
+  try {
+    const subscription = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId)
 
-  return true
+    if (subscription.items.data.length === 0) {
+      logger.warn({ tenantId, subscriptionId: sub.stripeSubscriptionId }, 'No subscription items found')
+      return false
+    }
+
+    const itemId = subscription.items.data[0].id
+
+    // Create a usage record for the current billing period
+    await stripe.subscriptionItems.createUsageRecord(
+      itemId,
+      {
+        quantity: usage.count,
+        timestamp: Math.floor(Date.now() / 1000),
+        action: 'set', // Set to current count (not increment — we track absolute count)
+      },
+    )
+
+    logger.info(
+      { tenantId, monthKey, count: usage.count, itemId },
+      'Usage reported to Stripe (metered billing)',
+    )
+    return true
+  } catch (e: any) {
+    // If the price is 'licensed' (not 'metered'), Stripe will return an error.
+    // This is expected for fixed-price plans — log and return false.
+    if (e?.code === 'resource_missing' || e?.message?.includes('metered')) {
+      logger.info(
+        { tenantId, subscriptionId: sub.stripeSubscriptionId },
+        'Subscription uses fixed pricing (not metered) — usage reporting skipped',
+      )
+      return false
+    }
+    logger.error({ error: e, tenantId }, 'Failed to report usage to Stripe')
+    return false
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -692,6 +730,7 @@ export async function createNowPaymentsInvoice(opts: {
  *   HMAC-SHA256(sorted(JSON.stringify(body)), ipn_secret)
  */
 export async function handleNowPaymentsWebhook(
+  rawBody: string,
   body: any,
   signature: string,
 ): Promise<{ received: boolean; error?: string; idempotent?: boolean }> {
@@ -702,9 +741,11 @@ export async function handleNowPaymentsWebhook(
   }
 
   // --- Security Layer 1: HMAC signature verification (timing-safe) ---
+  // SECURITY FIX (C-10): Compute HMAC over the RAW request body (as received),
+  // NOT over re-serialized JSON. Re-serialization changes the byte order and
+  // separators, causing signature mismatch with what NowPayments signed.
   const crypto = await import('node:crypto')
-  const sortedBody = JSON.stringify(body, Object.keys(body).sort())
-  const expectedSig = crypto.createHmac('sha256', ipnSecret).update(sortedBody).digest('hex')
+  const expectedSig = crypto.createHmac('sha256', ipnSecret).update(rawBody).digest('hex')
 
   const sigBuffer = Buffer.from(signature)
   const expectedBuffer = Buffer.from(expectedSig)
@@ -723,9 +764,15 @@ export async function handleNowPaymentsWebhook(
   }
 
   // --- Security Layer 2: Replay protection (reject events older than 5 min) ---
-  // NowPayments includes a `created_at` timestamp in the webhook body
-  const eventTimestamp = body.created_at ? new Date(body.created_at).getTime() / 1000 : 0
-  const eventAge = eventTimestamp > 0 ? Math.floor(Date.now() / 1000) - eventTimestamp : 0
+  // SECURITY FIX (C-11): Require created_at to be present.
+  // Previously, if created_at was missing, eventAge was 0 and the check
+  // was bypassed. Now we reject webhooks without a timestamp.
+  if (!body.created_at) {
+    logger.warn({ paymentId }, 'NowPayments webhook rejected — missing created_at timestamp')
+    return { received: false, error: 'Missing created_at — possible replay attack' }
+  }
+  const eventTimestamp = new Date(body.created_at).getTime() / 1000
+  const eventAge = Math.floor(Date.now() / 1000) - eventTimestamp
   if (eventAge > MAX_WEBHOOK_AGE_SECONDS) {
     logger.warn(
       { paymentId, eventAge, maxAge: MAX_WEBHOOK_AGE_SECONDS },

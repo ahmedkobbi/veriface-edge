@@ -2,15 +2,7 @@
  * POST /api/billing/nowpayments/webhook
  * NowPayments IPN (Instant Payment Notification) webhook handler.
  *
- * NowPayments sends HMAC-signed webhooks when crypto payments are:
- *   - waiting (created, awaiting payment)
- *   - confirming (payment received, awaiting confirmations)
- *   - confirmed (enough confirmations)
- *   - sending (payout to merchant in progress)
- *   - finished (payout complete — this is the "success" state)
- *   - failed / expired
- *
- * The webhook signature is verified using HMAC-SHA256 with the IPN secret.
+ * SECURITY: Uses raw request body for HMAC signature verification (C-10 fix).
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -20,7 +12,7 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function POST(req: NextRequest) {
-  // Read raw body as text for signature verification
+  // Read raw body as text for signature verification (C-10 fix)
   const rawBody = await req.text()
   const signature = req.headers.get('x-nowpayments-sig') ?? ''
 
@@ -31,7 +23,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  const result = await handleNowPaymentsWebhook(body, signature)
+  // Pass both raw body (for HMAC) and parsed body (for processing)
+  const result = await handleNowPaymentsWebhook(rawBody, body, signature)
 
   if (!result.received) {
     return NextResponse.json(

@@ -108,8 +108,22 @@ export async function POST(req: NextRequest) {
     const rawBodyString = JSON.stringify(await req.json())
 
     // Verify HMAC request signature (replay protection)
-    // The API key plaintext is needed for signature verification
-    const sigResult = await verifyRequestSignature(req, authResult.auth.apiKey ?? '', rawBodyString)
+    // SECURITY FIX (C-2): Use the tenant's webhookSecret as the HMAC key
+    // instead of the API key plaintext (which is not available — AuthResult
+    // only stores the key hash, not the plaintext).
+    //
+    // The webhookSecret is a per-tenant HMAC secret known to both the
+    // backend and the SDK (it's returned at tenant creation). Using it
+    // for request signing provides:
+    //   - Replay protection (timestamp + nonce + body in signature)
+    //   - Per-tenant key isolation (each tenant has a unique secret)
+    //   - No need to store the API key plaintext in memory
+    const tenantForSig = await db.tenant.findUnique({
+      where: { id: tenantId },
+      select: { webhookSecret: true },
+    })
+    const hmacKey = tenantForSig?.webhookSecret ?? ''
+    const sigResult = await verifyRequestSignature(req, hmacKey, rawBodyString)
     if (!sigResult.valid) {
       logger.warn({ tenantId, reason: sigResult.reason }, 'Request signature verification failed')
       return NextResponse.json(
@@ -148,37 +162,31 @@ export async function POST(req: NextRequest) {
     const session = sessionCheck.session!
 
     // 2. Verify JWT signature
-    // FIX (#2): The SDK signs the JWT with its ephemeral per-session Ed25519 keypair,
-    // NOT the tenant's signing key. The ephemeral public key is included in the
-    // JWT payload's `proof.sdk_pubkey` claim. We extract it and verify against it.
+    // SECURITY FIX (C-1): Verify the JWT against the TENANT's stored signingPubKey,
+    // NOT against a key extracted from the unverified JWT payload.
+    //
+    // Previously, the code extracted `proof.sdk_pubkey` from the unverified JWT
+    // and used it to verify the signature — allowing an attacker to sign with
+    // their own key and have the server verify against that same key.
+    //
+    // The SDK must sign the JWT with the tenant's Ed25519 signing private key
+    // (provided at tenant creation). The backend verifies against the stored
+    // signingPubKey. For post-quantum hybrid mode, the backend also verifies
+    // the ML-DSA-87 signature against pqSigningPubKey.
     const tenant = await db.tenant.findUnique({ where: { id: tenantId } })
     if (!tenant) {
       return NextResponse.json({ success: false, error: 'Tenant not found' }, { status: 403 })
     }
 
-    // Decode the JWT payload (without verification) to extract the SDK's ephemeral public key
-    const jwtParts = jwt.split('.')
-    if (jwtParts.length !== 3) {
+    if (!tenant.signingPubKey) {
       return NextResponse.json(
-        { success: false, code: 'JWT_INVALID', error: 'Malformed JWT' },
-        { status: 401 },
-      )
-    }
-    const payloadPadded = jwtParts[1].replace(/-/g, '+').replace(/_/g, '/')
-    const payloadBin = atob(payloadPadded)
-    const payloadBytes = new Uint8Array(payloadBin.length)
-    for (let i = 0; i < payloadBin.length; i++) payloadBytes[i] = payloadBin.charCodeAt(i)
-    const unverifiedClaims = JSON.parse(new TextDecoder().decode(payloadBytes))
-    const sdkPubKey = unverifiedClaims?.proof?.sdk_pubkey
-    if (!sdkPubKey || typeof sdkPubKey !== 'string') {
-      return NextResponse.json(
-        { success: false, code: 'JWT_INVALID', error: 'JWT missing proof.sdk_pubkey' },
-        { status: 401 },
+        { success: false, code: 'TENANT_CONFIG_ERROR', error: 'Tenant has no signing public key configured' },
+        { status: 500 },
       )
     }
 
-    // Now verify the JWT signature using the SDK's ephemeral public key
-    const claims = await verifyJwtSignature(jwt, sdkPubKey)
+    // Verify the JWT signature using the TENANT's stored Ed25519 public key
+    const claims = await verifyJwtSignature(jwt, tenant.signingPubKey)
     if (!claims) {
       await appendAudit({
         tenantId,
