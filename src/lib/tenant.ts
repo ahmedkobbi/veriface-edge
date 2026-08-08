@@ -36,8 +36,19 @@ export interface TenantInit {
 /**
  * Create a new enterprise tenant. Generates:
  *   - Ed25519 keypair for SDK JWT signing verification
+ *     (public key stored in DB, private key returned ONCE to the SDK)
  *   - Webhook HMAC secret
  *   - KMS key identifier (simulated — in production this is an AWS KMS CMK ARN)
+ *
+ * SECURITY FIX (I-2): The tenant signing keypair IS used — it's the core of
+ * the C-1 fix. The SDK signs the session-verify JWT with the private key;
+ * the backend verifies it against the tenant's stored signingPubKey
+ * (see src/app/api/session/verify/route.ts:190). Without this binding,
+ * an attacker could supply their own key in the JWT payload and bypass auth.
+ *
+ * The private key is returned ONCE at tenant creation and NEVER stored
+ * server-side (only the public key is persisted). The SDK must persist
+ * it in secure hardware (iOS Keychain, Android Keystore, etc.).
  */
 export async function createTenant(name: string): Promise<{
   tenant: TenantInit
@@ -56,6 +67,11 @@ export async function createTenant(name: string): Promise<{
     },
   })
 
+  // SECURITY: Zero out the private key from memory after encoding.
+  // The hex string is returned to the caller; the raw Uint8Array is wiped.
+  const privateKeyHex = hex.encode(signingKeypair.privateKey)
+  signingKeypair.privateKey.fill(0)
+
   return {
     tenant: {
       id: tenant.id,
@@ -64,7 +80,7 @@ export async function createTenant(name: string): Promise<{
       webhookSecret: tenant.webhookSecret,
       kmsKeyId: tenant.kmsKeyId,
     },
-    signingPrivateKey: hex.encode(signingKeypair.privateKey),
+    signingPrivateKey: privateKeyHex,
   }
 }
 

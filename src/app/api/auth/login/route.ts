@@ -222,13 +222,21 @@ export async function POST(req: NextRequest) {
     // Issue session token
     const token = await createSessionToken(user.id, user.email, user.tenantId)
 
+    // SECURITY FIX (I-3): Issue a CSRF token cookie on login.
+    // The frontend reads this and includes it as X-CSRF-Token on state-changing requests.
+    const { generateCsrfToken, buildCsrfCookieHeader } = await import('@/lib/csrf')
+    const csrfToken = generateCsrfToken()
+
     logger.info({ userId: user.id, email: user.email }, 'User logged in')
 
     const response = NextResponse.json({
       success: true,
       user: toPublicUser(user),
+      csrfToken, // Also return in body for frontend convenience
     })
+    // Set both cookies: session (HttpOnly) + CSRF (non-HttpOnly)
     response.headers.set('Set-Cookie', buildCookieHeader(token))
+    response.headers.append('Set-Cookie', buildCsrfCookieHeader(csrfToken))
     return response
   } catch (e) {
     logger.error({ error: e }, 'Login failed')

@@ -554,6 +554,22 @@ async function handlePaymentSucceeded(paymentIntent: Stripe.PaymentIntent) {
  *
  * Called by a cron job at the end of each billing period.
  * Reports the total API calls for the period to Stripe.
+ *
+ * SECURITY FIX (I-6): Return value contract clarified.
+ *   - Returns `true` ONLY when the Stripe API call succeeds (usage recorded)
+ *   - Returns `false` for ALL other cases:
+ *     - No subscription found
+ *     - No usage counter for the month
+ *     - Subscription uses fixed pricing (not metered) — expected, not an error
+ *     - Stripe API error (network, auth, rate limit)
+ *
+ * Callers MUST check the return value. If `false`, the caller should retry
+ * (for transient errors) or alert (for persistent errors). A `false` return
+ * means the tenant was NOT billed for this period — silent failure leads to
+ * revenue leakage.
+ *
+ * The function also writes an audit log entry on success, so there's a
+ * tamper-evident record of when usage was reported.
  */
 export async function reportUsageToStripe(tenantId: string): Promise<boolean> {
   const stripe = getStripe()
@@ -604,6 +620,20 @@ export async function reportUsageToStripe(tenantId: string): Promise<boolean> {
       { tenantId, monthKey, count: usage.count, itemId },
       'Usage reported to Stripe (metered billing)',
     )
+
+    // SECURITY FIX (I-6): Audit-log the successful usage report.
+    // This creates a tamper-evident record that billing actually occurred.
+    await appendAudit({
+      tenantId,
+      eventType: 'billing.usage_reported',
+      payload: {
+        monthKey,
+        count: usage.count,
+        itemId,
+        subscriptionId: sub.stripeSubscriptionId,
+      },
+    })
+
     return true
   } catch (e: any) {
     // If the price is 'licensed' (not 'metered'), Stripe will return an error.

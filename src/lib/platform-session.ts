@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getCookieFromRequest, verifySessionToken } from '@/lib/platform-auth'
+import { verifyCsrfToken } from '@/lib/csrf'
 import { logger } from '@/lib/logger'
 
 export interface PlatformSession {
@@ -32,9 +33,23 @@ export interface PlatformSessionError {
   response: NextResponse
 }
 
+// SECURITY FIX (I-3): CSRF protection for cookie-authenticated state-changing requests.
+// GET/HEAD/OPTIONS are safe methods (no state change) — no CSRF token required.
+// POST/PUT/PATCH/DELETE require a valid X-CSRF-Token header matching the CSRF cookie.
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
+
 export async function requirePlatformSession(
   req: NextRequest,
 ): Promise<PlatformSession | PlatformSessionError> {
+  // SECURITY FIX (I-3): Enforce CSRF token on state-changing methods.
+  // This is defense-in-depth on top of SameSite=Strict (L-1 fix).
+  if (!SAFE_METHODS.has(req.method.toUpperCase())) {
+    const csrfError = verifyCsrfToken(req)
+    if (csrfError) {
+      return { ok: false, response: csrfError }
+    }
+  }
+
   const token = getCookieFromRequest(req)
   if (!token) {
     return {

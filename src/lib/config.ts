@@ -18,15 +18,56 @@ import { ed25519 } from '@noble/curves/ed25519.js'
 import { randomBytes } from '@noble/hashes/utils.js'
 import { logger } from '@/lib/logger'
 
-// M15: Refuse to boot in production with SQLite
+// ---------------------------------------------------------------------------
+// SECURITY FIX (I-1): Production boot guards — refuse to start with insecure config.
+// ---------------------------------------------------------------------------
+
+// I-1: Refuse to boot in production with SQLite (or missing DATABASE_URL).
+// SQLite lacks row-level security, concurrent write safety, and TLS — all
+// required for a multi-tenant SaaS handling biometric data.
 if (process.env.NODE_ENV === 'production') {
   const dbUrl = process.env.DATABASE_URL ?? ''
-  if (dbUrl.startsWith('file:') || dbUrl === '') {
+  if (dbUrl === '') {
     throw new Error(
-      'SQLite (file: URL) is not supported in production. Set DATABASE_URL to a PostgreSQL connection string. ' +
+      'FATAL: DATABASE_URL is not set. Production requires PostgreSQL. ' +
       'Example: postgresql://user:pass@host:5432/veriface?schema=public'
     )
   }
+  if (dbUrl.startsWith('file:')) {
+    throw new Error(
+      'FATAL: SQLite (file: URL) is not supported in production. Set DATABASE_URL to a PostgreSQL connection string. ' +
+      'Example: postgresql://user:pass@host:5432/veriface?schema=public'
+    )
+  }
+  // Require postgresql:// scheme (reject mysql://, mongodb://, etc.)
+  if (!dbUrl.startsWith('postgresql://') && !dbUrl.startsWith('postgres://')) {
+    throw new Error(
+      `FATAL: DATABASE_URL must use PostgreSQL (got "${dbUrl.split(':')[0]}://"). ` +
+      'Set DATABASE_URL to a postgresql:// connection string.'
+    )
+  }
+  // Require TLS in production (sslmode=require or sslmode=verify-full)
+  if (!dbUrl.includes('sslmode=require') && !dbUrl.includes('sslmode=verify-full') && !dbUrl.includes('sslmode=prefer')) {
+    logger.warn(
+      'DATABASE_URL does not specify sslmode — production connections should use sslmode=verify-full for TLS.'
+    )
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SECURITY FIX (I-4): VERIFACE_ALLOW_INSECURE_DEV footgun — refuse in production.
+// ---------------------------------------------------------------------------
+
+// I-4: If VERIFACE_ALLOW_INSECURE_DEV is set in production, REFUSE to boot.
+// This env var enables ephemeral signing keys, which means all session tokens
+// are invalid after a restart — unacceptable for production. Setting it in
+// production is almost always a mistake (copy-pasted .env from dev).
+if (process.env.NODE_ENV === 'production' && process.env.VERIFACE_ALLOW_INSECURE_DEV) {
+  throw new Error(
+    'FATAL: VERIFACE_ALLOW_INSECURE_DEV is set in production. ' +
+    'This flag enables insecure ephemeral keys and MUST NOT be used in production. ' +
+    'Remove it from your environment and set VERIFACE_SERVER_SIGNING_KEY instead.'
+  )
 }
 
 let serverKeyPair: Ed25519KeyPair | null = null

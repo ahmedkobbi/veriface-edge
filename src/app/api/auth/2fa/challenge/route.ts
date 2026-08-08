@@ -99,6 +99,10 @@ export async function POST(req: NextRequest) {
     // Issue full session token
     const sessionToken = await createSessionToken(user.id, user.email, user.tenantId)
 
+    // SECURITY FIX (I-3): Issue CSRF token cookie alongside session cookie.
+    const { generateCsrfToken, buildCsrfCookieHeader } = await import('@/lib/csrf')
+    const csrfToken = generateCsrfToken()
+
     await appendAudit({
       tenantId: user.tenantId ?? '',
       eventType: 'auth.success',
@@ -111,11 +115,13 @@ export async function POST(req: NextRequest) {
       success: true,
       user: toPublicUser(user),
       backupUsed,
+      csrfToken,
       remainingBackupCodes: backupUsed
         ? JSON.parse(user.twoFactorBackupCodes ?? '[]').length - 1
         : undefined,
     })
     response.headers.set('Set-Cookie', buildCookieHeader(sessionToken))
+    response.headers.append('Set-Cookie', buildCsrfCookieHeader(csrfToken))
     return response
   } catch (e) {
     logger.error({ error: e }, '2FA challenge failed')

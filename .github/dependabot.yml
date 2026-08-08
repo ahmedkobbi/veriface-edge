@@ -1,56 +1,73 @@
-# VeriFace Edge — Dependabot Configuration
+# SECURITY FIX (I-8): Dependabot configuration for automated dependency updates.
 #
-# Checks for outdated dependencies and opens PRs to update them.
+# Dependabot monitors the dependency tree and opens PRs when:
+#   - A new version is released
+#   - A CVE is published against a dependency
+#
+# PRs are reviewed manually before merging. Security-critical libraries
+# (see docs/DEPENDENCY_SECURITY.md) require extra scrutiny.
 
 version: 2
 
 updates:
-  # npm dependencies (Next.js, Prisma, @noble, etc.)
-  - package-ecosystem: npm
-    directory: /
+  # npm dependencies (main package.json)
+  - package-ecosystem: "npm"
+    directory: "/"
     schedule:
-      interval: weekly
-      day: monday
+      interval: "weekly"
+      day: "monday"
       time: "09:00"
-      timezone: UTC
+      timezone: "UTC"
     open-pull-requests-limit: 10
-    labels:
-      - dependencies
-      - npm
-    commit-message:
-      prefix: chore
-      include: scope
-    reviewers:
-      - ahmedkobbi
+    # Group minor/patch updates to reduce PR noise
     groups:
-      # Group minor/patch updates together to reduce PR noise
       minor-and-patch:
         update-types:
-          - minor
-          - patch
-      # Major version bumps get their own PR (breaking changes)
-      major:
-        update-types:
-          - major
+          - "minor"
+          - "patch"
+    # Security-critical packages — require manual review
+    # (listed in docs/DEPENDENCY_SECURITY.md)
+    ignore:
+      # @noble/post-quantum: pinned to 0.6.1 — manual review required
+      - dependency-name: "@noble/post-quantum"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      # @noble/* crypto libraries — review changelog before bumping
+      - dependency-name: "@noble/curves"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@noble/hashes"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@noble/ciphers"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@noble/ed25519"
+        update-types: ["version-update:semver-major"]
+    reviewers:
+      - "ahmedkobbi"
+    assignees:
+      - "ahmedkobbi"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
 
   # GitHub Actions
-  - package-ecosystem: github-actions
-    directory: /
+  - package-ecosystem: "github-actions"
+    directory: "/"
     schedule:
-      interval: weekly
-      day: monday
-    labels:
-      - dependencies
-      - github-actions
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "ahmedkobbi"
     commit-message:
-      prefix: chore
-      include: scope
+      prefix: "ci"
+      include: "scope"
 
-  # Docker base images
-  - package-ecosystem: docker
-    directory: /
+  # Docker base image
+  - package-ecosystem: "docker"
+    directory: "/"
     schedule:
-      interval: weekly
-    labels:
-      - dependencies
-      - docker
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "ahmedkobbi"
+    commit-message:
+      prefix: "docker"
+      include: "scope"
