@@ -4,11 +4,11 @@
 
 ### Privacy-First Facial Authentication Platform with Post-Quantum Security
 
-[![CI](https://github.com/ahmedkobbi/veriface-edge/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ahmedkobbi/veriface-edge/actions/workflows/ci.yml)
-[![CD](https://github.com/ahmedkobbi/veriface-edge/actions/workflows/cd.yml/badge.svg)](https://github.com/ahmedkobbi/veriface-edge/actions/workflows/cd.yml)
+[![CI](https://github.com/ahmedkobbi/veriface/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ahmedkobbi/veriface/actions/workflows/ci.yml)
+[![CD](https://github.com/ahmedkobbi/veriface/actions/workflows/cd.yml/badge.svg)](https://github.com/ahmedkobbi/veriface/actions/workflows/cd.yml)
 [![Security](https://img.shields.io/badge/security-military--grade-success?logo=shield&logoColor=white)](docs/OWASP_TOP10_FINAL.md)
 [![OWASP](https://img.shields.io/badge/OWASP%20Top%2010-10%2F10%20PASS-brightgreen)](docs/OWASP_TOP10_FINAL.md)
-[![License: MIT](https://img.shields.io/github/license/ahmedkobbi/veriface-edge?color=blue)](LICENSE)
+[![License: MIT](https://img.shields.io/github/license/ahmedkobbi/veriface?color=blue)](LICENSE)
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0%2B-blue?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js&logoColor=white)](https://nextjs.org/)
@@ -25,7 +25,7 @@
 
 [![Tests](https://img.shields.io/badge/tests-345%20passing-brightgreen)](tests/)
 [![Findings Fixed](https://img.shields.io/badge/findings%20fixed-88%2F88-success)](docs/OWASP_TOP10_FINAL.md)
-[![Stars](https://img.shields.io/github/stars/ahmedkobbi/veriface-edge?style=social)](https://github.com/ahmedkobbi/veriface-edge/stargazers)
+[![Stars](https://img.shields.io/github/stars/ahmedkobbi/veriface?style=social)](https://github.com/ahmedkobbi/veriface/stargazers)
 
 </div>
 
@@ -183,8 +183,8 @@ All SDKs implement identical crypto (verified by cross-platform tests):
 ### 1. Install
 
 ```bash
-git clone https://github.com/ahmedkobbi/veriface-edge.git
-cd veriface-edge
+git clone https://github.com/ahmedkobbi/veriface.git
+cd veriface
 bun install
 ```
 
@@ -355,10 +355,10 @@ Full OpenAPI spec: [`openapi.json`](openapi.json)
 
 Contributions are welcome! Please read the [Contributing Guide](CONTRIBUTING.md) before opening a PR.
 
-- 🐛 [Report a bug](https://github.com/ahmedkobbi/veriface-edge/issues/new?labels=bug)
-- ✨ [Request a feature](https://github.com/ahmedkobbi/veriface-edge/issues/new?labels=enhancement)
-- 🔒 [Report a security vulnerability](https://github.com/ahmedkobbi/veriface-edge/security/advisories/new)
-- 💬 [Start a discussion](https://github.com/ahmedkobbi/veriface-edge/discussions)
+- 🐛 [Report a bug](https://github.com/ahmedkobbi/veriface/issues/new?labels=bug)
+- ✨ [Request a feature](https://github.com/ahmedkobbi/veriface/issues/new?labels=enhancement)
+- 🔒 [Report a security vulnerability](https://github.com/ahmedkobbi/veriface/security/advisories/new)
+- 💬 [Start a discussion](https://github.com/ahmedkobbi/veriface/discussions)
 
 Security-critical files require review from [CODEOWNERS](.github/CODEOWNERS).
 
@@ -372,9 +372,9 @@ Security-critical files require review from [CODEOWNERS](.github/CODEOWNERS).
 
 <div align="center">
 
-**If this project helps you, please consider [⭐ starring the repo](https://github.com/ahmedkobbi/veriface-edge/stargazers)!**
+**If this project helps you, please consider [⭐ starring the repo](https://github.com/ahmedkobbi/veriface/stargazers)!**
 
-[![Star History Chart](https://api.star-history.com/svg?repos=ahmedkobbi/veriface-edge&type=Date)](https://star-history.com/#ahmedkobbi/veriface-edge&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=ahmedkobbi/veriface&type=Date)](https://star-history.com/#ahmedkobbi/veriface&Date)
 
 <sub>Built with Next.js · Prisma · Bun · @noble/curves · MediaPipe · snarkjs · Tailwind CSS</sub>
 
