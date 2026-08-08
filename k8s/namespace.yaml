@@ -1,0 +1,8 @@
+# VeriFace Edge — Kubernetes Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: veriface
+  labels:
+    app.kubernetes.io/name: veriface-edge
+    app.kubernetes.io/part-of: veriface-edge

@@ -1,0 +1,112 @@
+# VeriFace Edge — .dockerignore
+# Prevents sensitive files from being copied into the Docker build context.
+# This is critical: without this, .env files, .git history, and node_modules
+# would be sent to the Docker daemon (and potentially baked into the image).
+
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Environment files (NEVER bake into image)
+.env
+.env.local
+.env.*.local
+.env.production
+.env.staging
+
+# Keep .env.example (needed for documentation in the image)
+!.env.example
+
+# Dependencies (will be installed in the build stage)
+node_modules
+
+# Build artifacts (will be generated in the build stage)
+.next
+out
+dist
+build
+
+# Database
+db/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Tests (not needed in production image)
+tests/
+__tests__/
+*.test.ts
+*.test.js
+*.spec.ts
+*.spec.js
+coverage/
+.nyc_output
+
+# Development tools
+.eslintrc*
+eslint.config.*
+.prettierrc*
+tsconfig.json
+jest.config.*
+vitest.config.*
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+dev.log
+server.log
+
+# Backups
+backups/
+*.backup
+*.bak
+
+# Documentation (not needed in runtime image)
+docs/
+*.md
+LICENSE
+
+# Upload directory (runtime data, not build artifact)
+upload/
+
+# Tool results
+tool-results/
+
+# ZK ceremony artifacts (generated at runtime, not build time)
+ceremony/
+circom/
+zk/
+
+# Scripts (only needed for dev, not production runtime)
+scripts/
+
+# SDK source (only needed for dev — the built app is in .next/standalone)
+src/sdk/
+
+# Examples
+examples/
+
+# Mini-services (built separately)
+mini-services/

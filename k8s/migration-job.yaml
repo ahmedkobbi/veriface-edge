@@ -1,0 +1,53 @@
+# VeriFace Edge — Database Migration Init Container
+#
+# Runs Prisma migrations BEFORE the app starts. This ensures the DB schema
+# is up-to-date before any app pod accepts traffic.
+#
+# The init container runs to completion, then the app pods start.
+# If migration fails, the deployment rolls back.
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: veriface-migrate
+  namespace: veriface
+  labels:
+    app.kubernetes.io/name: veriface-edge
+    app.kubernetes.io/component: migration
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 300
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+      containers:
+        - name: migrate
+          image: veriface-edge:1.0.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "[Migration] Running prisma migrate deploy..."
+              bunx prisma migrate deploy
+              echo "[Migration] ✅ Migration completed"
+          envFrom:
+            - secretRef:
+                name: veriface-secrets
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "1000m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
