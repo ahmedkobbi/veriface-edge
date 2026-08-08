@@ -1,19 +1,16 @@
 /**
- * VeriFace Edge Mobile — API Keys Screen
- *
- * List, create, and revoke API keys.
- * Copy key to clipboard (shown once on creation).
+ * VeriFace Edge Mobile — API Keys Screen (Glassmorphism Edition)
  */
 
 import React, { useState, useEffect, useCallback } from 'react'
-import {
-  View, Text, FlatList, TouchableOpacity, RefreshControl,
-  Alert, Modal, TextInput, StyleSheet, Clipboard,
-} from 'react-native'
+import { View, Text, FlatList, RefreshControl, Clipboard } from 'react-native'
 import * as Haptics from 'expo-haptics'
+import { useTheme } from '../theme/ThemeContext'
+import { GlassCard, GlassButton, GlassBadge, GlassInput, GlassModal, showToast } from '../components/GlassComponents'
 import { ApiService } from '../services/ApiService'
 
 export function ApiKeysScreen() {
+  const { theme } = useTheme()
   const [keys, setKeys] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -22,192 +19,88 @@ export function ApiKeysScreen() {
   const [createdKey, setCreatedKey] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    try {
-      const data = await ApiService.listApiKeys()
-      if (data.apiKeys) setKeys(data.apiKeys)
-    } catch (e) {
-      console.error('Failed to load API keys:', e)
-    } finally {
-      setLoading(false)
-      setRefreshing(false)
-    }
+    try { const data = await ApiService.listApiKeys(); if (data.apiKeys) setKeys(data.apiKeys) }
+    catch (e) { console.error(e) }
+    finally { setLoading(false); setRefreshing(false) }
   }, [])
 
   useEffect(() => { load() }, [load])
-
   const onRefresh = () => { setRefreshing(true); load() }
 
   const handleCreate = async () => {
-    if (!newKeyLabel.trim()) {
-      Alert.alert('Missing label', 'Please enter a label for the API key')
-      return
-    }
+    if (!newKeyLabel.trim()) { showToast('Please enter a label', 'warning'); return }
     try {
       const data = await ApiService.createApiKey(newKeyLabel, '*')
-      if (data.apiKey?.plaintext) {
-        setCreatedKey(data.apiKey.plaintext)
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
-      }
-      setShowCreate(false)
-      setNewKeyLabel('')
-      load()
-    } catch (e: any) {
-      Alert.alert('Failed', e.message)
-    }
+      if (data.apiKey?.plaintext) { setCreatedKey(data.apiKey.plaintext); showToast('API key created', 'success') }
+      setShowCreate(false); setNewKeyLabel(''); load()
+    } catch (e: any) { showToast(e.message, 'error') }
   }
 
   const handleRevoke = (keyId: string, label: string) => {
-    Alert.alert(
-      'Revoke API Key',
-      `Are you sure you want to revoke "${label}"? This cannot be undone.`,
-      [
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+    import('react-native').then(({ Alert }) =>
+      Alert.alert('Revoke API Key', `Revoke "${label}"? This cannot be undone.`, [
         { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Revoke', style: 'destructive',
-          onPress: async () => {
-            try {
-              await ApiService.revokeApiKey(keyId)
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
-              load()
-            } catch (e: any) {
-              Alert.alert('Failed', e.message)
-            }
-          },
-        },
-      ],
+        { text: 'Revoke', style: 'destructive', onPress: async () => {
+          try { await ApiService.revokeApiKey(keyId); showToast('Key revoked', 'success'); load() }
+          catch (e: any) { showToast(e.message, 'error') }
+        }},
+      ])
     )
   }
 
   const copyKey = (key: string) => {
     Clipboard.setString(key)
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-    Alert.alert('Copied', 'API key copied to clipboard')
+    showToast('API key copied', 'success')
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>API Keys ({keys.length})</Text>
-        <TouchableOpacity style={styles.createBtn} onPress={() => setShowCreate(true)}>
-          <Text style={styles.createBtnText}>+ Create</Text>
-        </TouchableOpacity>
+    <View style={{ flex: 1, paddingTop: 100 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 12, marginBottom: 8 }}>
+        <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '700' }}>API Keys ({keys.length})</Text>
+        <GlassButton onPress={() => setShowCreate(true)} variant="primary" size="sm">+ Create</GlassButton>
       </View>
 
       <FlatList
         data={keys}
         keyExtractor={(item) => item.id}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#10b981" />}
+        contentContainerStyle={{ padding: 12 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.primary} />}
         renderItem={({ item }) => (
-          <View style={styles.keyCard}>
+          <GlassCard variant="medium" style={{ marginBottom: 8, flexDirection: 'row', alignItems: 'center' }}>
             <View style={{ flex: 1 }}>
-              <View style={styles.keyHeader}>
-                <Text style={styles.keyLabel}>{item.label}</Text>
-                <View style={[styles.keyBadge, item.active ? styles.badgeActive : styles.badgeRevoked]}>
-                  <Text style={styles.keyBadgeText}>{item.active ? 'Active' : 'Revoked'}</Text>
-                </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                <Text style={{ color: theme.colors.text, fontSize: 14, fontWeight: '600' }}>{item.label}</Text>
+                <GlassBadge variant={item.active ? 'success' : 'error'}>{item.active ? 'Active' : 'Revoked'}</GlassBadge>
               </View>
-              <Text style={styles.keyPrefix}>{item.keyPrefix}...{item.lastFour}</Text>
-              <Text style={styles.keyMeta}>
-                Scopes: {item.scopes} · Created {new Date(item.createdAt).toLocaleDateString()}
-              </Text>
-              {item.lastUsedAt && (
-                <Text style={styles.keyMeta}>Last used: {new Date(item.lastUsedAt).toLocaleDateString()}</Text>
-              )}
+              <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontFamily: theme.typography.fontMono }}>{item.keyPrefix}...{item.lastFour}</Text>
+              <Text style={{ color: theme.colors.textMuted, fontSize: 10, marginTop: 4 }}>Scopes: {item.scopes} · {new Date(item.createdAt).toLocaleDateString()}</Text>
             </View>
-            {item.active && (
-              <TouchableOpacity onPress={() => handleRevoke(item.id, item.label)} style={styles.revokeBtn}>
-                <Text style={styles.revokeBtnText}>Revoke</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+            {item.active && <GlassButton onPress={() => handleRevoke(item.id, item.label)} variant="danger" size="sm">Revoke</GlassButton>}
+          </GlassCard>
         )}
-        ListEmptyComponent={
-          <Text style={styles.emptyText}>No API keys. Create one to get started.</Text>
-        }
+        ListEmptyComponent={<Text style={{ color: theme.colors.textMuted, fontSize: 14, textAlign: 'center', marginTop: 40 }}>No API keys. Create one to get started.</Text>}
       />
 
-      {/* Create modal */}
-      <Modal visible={showCreate} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Create API Key</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Label (e.g., Production)"
-              placeholderTextColor="#475569"
-              value={newKeyLabel}
-              onChangeText={setNewKeyLabel}
-              autoFocus
-            />
-            <View style={styles.modalActions}>
-              <TouchableOpacity onPress={() => { setShowCreate(false); setNewKeyLabel('') }}>
-                <Text style={styles.cancelBtn}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={handleCreate} style={styles.createConfirmBtn}>
-                <Text style={styles.createConfirmText}>Create</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+      <GlassModal visible={showCreate} onClose={() => setShowCreate(false)} title="Create API Key">
+        <GlassInput value={newKeyLabel} onChangeText={setNewKeyLabel} placeholder="Label (e.g., Production)" autoFocus />
+        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 16 }}>
+          <GlassButton onPress={() => { setShowCreate(false); setNewKeyLabel('') }} variant="ghost" size="md">Cancel</GlassButton>
+          <GlassButton onPress={handleCreate} variant="primary" size="md">Create</GlassButton>
         </View>
-      </Modal>
+      </GlassModal>
 
-      {/* Created key modal */}
-      <Modal visible={!!createdKey} animationType="fade" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>🔑 API Key Created</Text>
-            <Text style={styles.warningText}>
-              Copy this key now — it will NOT be shown again.
-            </Text>
-            <TouchableOpacity onPress={() => createdKey && copyKey(createdKey)} style={styles.keyBox}>
-              <Text style={styles.keyText} numberOfLines={1}>{createdKey}</Text>
-              <Text style={styles.copyHint}>Tap to copy</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setCreatedKey(null)} style={styles.createConfirmBtn}>
-              <Text style={styles.createConfirmText}>Done</Text>
-            </TouchableOpacity>
-          </View>
+      <GlassModal visible={!!createdKey} onClose={() => setCreatedKey(null)} title="🔑 API Key Created">
+        <Text style={{ color: theme.colors.warning, fontSize: 12, marginBottom: 12 }}>Copy this key now — it will NOT be shown again.</Text>
+        <GlassCard variant="heavy" style={{ marginBottom: 16 }}>
+          <Text style={{ color: theme.colors.primary, fontSize: 13, fontFamily: theme.typography.fontMono }} numberOfLines={1}>{createdKey}</Text>
+        </GlassCard>
+        <View style={{ flexDirection: 'row', gap: 12 }}>
+          <GlassButton onPress={() => createdKey && copyKey(createdKey)} variant="secondary" size="md" style={{ flex: 1 }}>Copy</GlassButton>
+          <GlassButton onPress={() => setCreatedKey(null)} variant="primary" size="md" style={{ flex: 1 }}>Done</GlassButton>
         </View>
-      </Modal>
+      </GlassModal>
     </View>
   )
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16 },
-  title: { color: '#f1f5f9', fontSize: 18, fontWeight: '700' },
-  createBtn: { backgroundColor: '#10b981', borderRadius: 8, padding: 8, paddingHorizontal: 16 },
-  createBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
-  keyCard: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: '#1e293b', borderRadius: 12,
-    padding: 14, marginHorizontal: 12, marginBottom: 8,
-  },
-  keyHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-  keyLabel: { color: '#f1f5f9', fontSize: 14, fontWeight: '600', flex: 1 },
-  keyBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 },
-  badgeActive: { backgroundColor: '#10b98130' },
-  badgeRevoked: { backgroundColor: '#ef444430' },
-  keyBadgeText: { fontSize: 10, fontWeight: '600' },
-  keyPrefix: { color: '#94a3b8', fontSize: 12, fontFamily: 'monospace', marginBottom: 4 },
-  keyMeta: { color: '#475569', fontSize: 10 },
-  revokeBtn: { padding: 8 },
-  revokeBtnText: { color: '#ef4444', fontSize: 13, fontWeight: '600' },
-  emptyText: { color: '#475569', fontSize: 14, textAlign: 'center', marginTop: 40 },
-  modalOverlay: { flex: 1, justifyContent: 'center', backgroundColor: '#00000080', padding: 24 },
-  modalContent: { backgroundColor: '#1e293b', borderRadius: 16, padding: 24 },
-  modalTitle: { color: '#f1f5f9', fontSize: 18, fontWeight: '700', marginBottom: 16 },
-  input: {
-    backgroundColor: '#0f172a', borderWidth: 1, borderColor: '#334155',
-    borderRadius: 8, padding: 12, color: '#f1f5f9', fontSize: 14, marginBottom: 16,
-  },
-  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12 },
-  cancelBtn: { color: '#64748b', fontSize: 14, padding: 8 },
-  createConfirmBtn: { backgroundColor: '#10b981', borderRadius: 8, padding: 10, paddingHorizontal: 20 },
-  createConfirmText: { color: '#fff', fontSize: 14, fontWeight: '600' },
-  warningText: { color: '#f59e0b', fontSize: 12, marginBottom: 12 },
-  keyBox: { backgroundColor: '#0f172a', borderRadius: 8, padding: 12, marginBottom: 16 },
-  keyText: { color: '#10b981', fontSize: 13, fontFamily: 'monospace' },
-  copyHint: { color: '#475569', fontSize: 10, marginTop: 4, textAlign: 'center' },
-})

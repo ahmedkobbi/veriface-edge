@@ -1,34 +1,26 @@
 /**
- * VeriFace Edge Mobile — Main Tab Navigator
+ * VeriFace Edge Mobile — Main Tab Navigator (Glassmorphism Edition)
  *
- * Bottom tab navigation with 5 tabs:
- *   1. Dashboard — overview stats, health, recent activity
- *   2. API Keys — list, create, revoke
- *   3. Security — fraud score, audit stream, alerts
- *   4. Billing — plan, invoices, upgrade
- *   5. Settings — profile, logout, notification prefs
+ * Glass bottom tab bar with blur + theme switcher in Settings header.
  */
 
-import React from 'react'
+import React, { useState } from 'react'
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
 import { Ionicons } from '@expo/vector-icons'
-import { TouchableOpacity, Alert } from 'react-native'
+import { TouchableOpacity, Alert, View, Text, StyleSheet } from 'react-native'
+import { BlurView } from 'expo-blur'
+import * as Haptics from 'expo-haptics'
 
 import { DashboardScreen } from '../screens/DashboardScreen'
 import { ApiKeysScreen } from '../screens/ApiKeysScreen'
 import { SecurityScreen } from '../screens/SecurityScreen'
 import { BillingScreen } from '../screens/BillingScreen'
 import { SettingsScreen } from '../screens/SettingsScreen'
+import { useTheme } from '../theme/ThemeContext'
+import { GlassButton, showToast } from '../components/GlassComponents'
+import type { ThemeMode } from '../theme/theme'
 
-export type RootTabParamList = {
-  Dashboard: undefined
-  ApiKeys: undefined
-  Security: undefined
-  Billing: undefined
-  Settings: undefined
-}
-
-const Tab = createBottomTabNavigator<RootTabParamList>()
+const Tab = createBottomTabNavigator()
 
 interface Props {
   sessionToken: string | null
@@ -36,23 +28,56 @@ interface Props {
   onLogout: () => void
 }
 
-export function MainTabNavigator({ sessionToken, apiBaseUrl, onLogout }: Props) {
+export function MainTabNavigator({ onLogout }: Props) {
+  const { theme, mode, setMode, isDark } = useTheme()
+
+  const cycleTheme = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+    const next: ThemeMode = mode === 'dark' ? 'light' : mode === 'light' ? 'auto' : 'dark'
+    setMode(next)
+    showToast(`Theme: ${next}`, 'info')
+  }
+
   const logout = () => {
-    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+    Alert.alert('Sign Out', 'Are you sure?', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Sign Out', style: 'destructive', onPress: onLogout },
     ])
   }
 
+  const themeIcon = mode === 'dark' ? 'moon' : mode === 'light' ? 'sunny' : 'phone-portrait'
+
   return (
     <Tab.Navigator
       screenOptions={{
-        headerStyle: { backgroundColor: '#0f172a' },
-        headerTintColor: '#f1f5f9',
+        headerStyle: { backgroundColor: 'transparent' },
+        headerTransparent: true,
+        headerTintColor: theme.colors.headerText,
         headerTitleStyle: { fontSize: 16, fontWeight: '600' },
-        tabBarStyle: { backgroundColor: '#0f172a', borderTopColor: '#1e293b' },
-        tabBarActiveTintColor: '#10b981',
-        tabBarInactiveTintColor: '#475569',
+        headerBackground: () => (
+          <BlurView
+            intensity={50}
+            tint={theme.mode}
+            style={{ ...StyleSheet.absoluteFillObject }}
+          />
+        ),
+        tabBarStyle: {
+          position: 'absolute',
+          backgroundColor: 'transparent',
+          borderTopColor: theme.colors.tabBarBorder,
+          borderTopWidth: 1,
+          elevation: 0,
+        },
+        tabBarBackground: () => (
+          <BlurView
+            intensity={50}
+            tint={theme.mode}
+            style={{ ...StyleSheet.absoluteFillObject }}
+          />
+        ),
+        tabBarActiveTintColor: theme.colors.tabBarActive,
+        tabBarInactiveTintColor: theme.colors.tabBarInactive,
+        tabBarLabelStyle: { fontSize: 10, fontWeight: '500' },
       }}
     >
       <Tab.Screen
@@ -61,6 +86,11 @@ export function MainTabNavigator({ sessionToken, apiBaseUrl, onLogout }: Props) 
         options={{
           title: 'Dashboard',
           tabBarIcon: ({ color, size }) => <Ionicons name="grid-outline" color={color} size={size} />,
+          headerRight: () => (
+            <TouchableOpacity onPress={cycleTheme} style={{ marginRight: 16, padding: 4 }}>
+              <Ionicons name={themeIcon as any} size={20} color={theme.colors.textSecondary} />
+            </TouchableOpacity>
+          ),
         }}
       />
       <Tab.Screen
@@ -93,7 +123,7 @@ export function MainTabNavigator({ sessionToken, apiBaseUrl, onLogout }: Props) 
           title: 'Settings',
           tabBarIcon: ({ color, size }) => <Ionicons name="settings-outline" color={color} size={size} />,
           headerRight: () => (
-            <TouchableOpacity onPress={logout} style={{ marginRight: 16 }}>
+            <TouchableOpacity onPress={logout} style={{ marginRight: 16, padding: 4 }}>
               <Ionicons name="log-out-outline" size={22} color="#ef4444" />
             </TouchableOpacity>
           ),

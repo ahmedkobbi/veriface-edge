@@ -1,22 +1,24 @@
 /**
- * VeriFace Edge Mobile — Settings Screen
- *
- * Profile, logout, notification preferences, app info.
+ * VeriFace Edge Mobile — Settings Screen (Glassmorphism Edition)
+ * Includes theme switcher (dark/light/auto)
  */
 
 import React, { useState, useEffect } from 'react'
-import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  Switch, Alert, Linking,
-} from 'react-native'
+import { View, Text, ScrollView, TouchableOpacity, Linking } from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
+import * as Haptics from 'expo-haptics'
+import { useTheme } from '../theme/ThemeContext'
+import { GlassCard, GlassButton, GlassSwitch, showToast } from '../components/GlassComponents'
 import { ApiService } from '../services/ApiService'
 import { NotificationService } from '../services/NotificationService'
+import type { ThemeMode } from '../theme/theme'
 
 interface Props {
   onLogout: () => void
 }
 
 export function SettingsScreen({ onLogout }: Props) {
+  const { theme, mode, setMode, isDark } = useTheme()
   const [user, setUser] = useState<any>(null)
   const [pushEnabled, setPushEnabled] = useState(true)
   const [securityAlerts, setSecurityAlerts] = useState(true)
@@ -24,172 +26,132 @@ export function SettingsScreen({ onLogout }: Props) {
   const [authAlerts, setAuthAlerts] = useState(true)
 
   useEffect(() => {
-    loadUser()
+    ApiService.getMe().then(d => { if (d.success) setUser(d.user) }).catch(() => {})
   }, [])
 
-  const loadUser = async () => {
-    try {
-      const data = await ApiService.getMe()
-      if (data.success) setUser(data.user)
-    } catch (e) {
-      console.error('Failed to load user:', e)
-    }
+  const handleLogout = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+    import('react-native').then(({ Alert }) =>
+      Alert.alert('Sign Out', 'Are you sure?', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sign Out', style: 'destructive', onPress: async () => {
+          await NotificationService.unregister(); onLogout()
+        }},
+      ])
+    )
   }
 
-  const handleLogout = () => {
-    Alert.alert('Sign Out', 'Are you sure?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign Out', style: 'destructive', onPress: async () => {
-        await NotificationService.unregister()
-        onLogout()
-      }},
-    ])
-  }
+  const themes: { mode: ThemeMode; label: string; icon: string }[] = [
+    { mode: 'dark', label: 'Dark', icon: 'moon' },
+    { mode: 'light', label: 'Light', icon: 'sunny' },
+    { mode: 'auto', label: 'Auto', icon: 'phone-portrait' },
+  ]
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12, paddingTop: 100 }}>
       {/* Profile */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Profile</Text>
-        <View style={styles.profileRow}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {user?.email?.[0]?.toUpperCase() || '?'}
-            </Text>
+      <GlassCard variant="glow" glowColor={theme.colors.primary}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <View style={{
+            width: 48, height: 48, borderRadius: 24,
+            backgroundColor: theme.colors.primary, justifyContent: 'center', alignItems: 'center',
+            marginRight: 12,
+          }}>
+            <Text style={{ color: '#fff', fontSize: 20, fontWeight: '700' }}>{user?.email?.[0]?.toUpperCase() || '?'}</Text>
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.profileName}>{user?.name || 'Admin'}</Text>
-            <Text style={styles.profileEmail}>{user?.email || '...'}</Text>
-            <Text style={styles.profileRole}>{user?.role || 'user'}</Text>
+            <Text style={{ color: theme.colors.text, fontSize: 16, fontWeight: '600' }}>{user?.name || 'Admin'}</Text>
+            <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginTop: 2 }}>{user?.email || '...'}</Text>
+            <Text style={{ color: theme.colors.primary, fontSize: 11, marginTop: 2, textTransform: 'uppercase' }}>{user?.role || 'user'}</Text>
           </View>
         </View>
-      </View>
+      </GlassCard>
 
-      {/* Notification preferences */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Push Notifications</Text>
-        <SettingRow
-          label="Enable Push Notifications"
-          value={pushEnabled}
-          onValueChange={setPushEnabled}
-        />
-        <SettingRow
-          label="🔒 Security Alerts"
-          description="Injection detected, brute force, suspicious activity"
-          value={securityAlerts}
-          onValueChange={setSecurityAlerts}
-        />
-        <SettingRow
-          label="💳 Billing Alerts"
-          description="Payment failed, usage threshold, quota exceeded"
-          value={billingAlerts}
-          onValueChange={setBillingAlerts}
-        />
-        <SettingRow
-          label="🔐 Auth Alerts"
-          description="New device login, 2FA changes, API key created/revoked"
-          value={authAlerts}
-          onValueChange={setAuthAlerts}
-        />
-      </View>
+      {/* Theme switcher */}
+      <GlassCard variant="medium" style={{ marginTop: 8 }}>
+        <Text style={{ color: theme.colors.text, fontSize: 14, fontWeight: '600', marginBottom: 12 }}>🎨 Theme</Text>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          {themes.map((t) => (
+            <TouchableOpacity
+              key={t.mode}
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setMode(t.mode); showToast(`Theme: ${t.label}`, 'info') }}
+              style={{
+                flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+                padding: 12, borderRadius: 10,
+                backgroundColor: mode === t.mode ? theme.colors.glassHighlight : 'transparent',
+                borderWidth: 1, borderColor: mode === t.mode ? theme.colors.primary + '40' : theme.colors.glassBorder,
+              }}
+            >
+              <Ionicons name={t.icon as any} size={16} color={mode === t.mode ? theme.colors.primary : theme.colors.textSecondary} />
+              <Text style={{ color: mode === t.mode ? theme.colors.primary : theme.colors.textSecondary, fontSize: 12, fontWeight: '600' }}>{t.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </GlassCard>
+
+      {/* Push notification preferences */}
+      <GlassCard variant="medium" style={{ marginTop: 8 }}>
+        <Text style={{ color: theme.colors.text, fontSize: 14, fontWeight: '600', marginBottom: 12 }}>🔔 Push Notifications</Text>
+        <SettingRow label="Enable Push" value={pushEnabled} onChange={setPushEnabled} theme={theme} />
+        <SettingRow label="🔒 Security Alerts" desc="Injection, brute force, suspicious activity" value={securityAlerts} onChange={setSecurityAlerts} theme={theme} />
+        <SettingRow label="💳 Billing Alerts" desc="Payment failed, threshold, quota exceeded" value={billingAlerts} onChange={setBillingAlerts} theme={theme} />
+        <SettingRow label="🔐 Auth Alerts" desc="New device, 2FA change, API key created/revoked" value={authAlerts} onChange={setAuthAlerts} theme={theme} last />
+      </GlassCard>
 
       {/* Quick links */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Links</Text>
-        <LinkRow label="📚 API Documentation" url="https://api.veriface.io/api-docs" />
-        <LinkRow label="📖 GitHub Repository" url="https://github.com/ahmedkobbi/veriface-edge" />
-        <LinkRow label="🔒 Security Policy" url="https://github.com/ahmedkobbi/veriface-edge/blob/main/SECURITY.md" />
-        <LinkRow label="📊 Status Page" url="https://status.veriface.io" />
-      </View>
+      <GlassCard variant="medium" style={{ marginTop: 8 }}>
+        <Text style={{ color: theme.colors.text, fontSize: 14, fontWeight: '600', marginBottom: 12 }}>Links</Text>
+        <LinkRow label="📚 API Docs" url="https://api.veriface.io/api-docs" theme={theme} />
+        <LinkRow label="📖 GitHub" url="https://github.com/ahmedkobbi/veriface-edge" theme={theme} />
+        <LinkRow label="🔒 Security Policy" url="https://github.com/ahmedkobbi/veriface-edge/blob/main/SECURITY.md" theme={theme} />
+        <LinkRow label="📊 Status Page" url="https://status.veriface.io" theme={theme} last />
+      </GlassCard>
 
-      {/* App info */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>About</Text>
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>Version</Text>
-          <Text style={styles.infoValue}>1.0.0</Text>
-        </View>
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>SDK Version</Text>
-          <Text style={styles.infoValue}>1.0.0</Text>
-        </View>
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>Build</Text>
-          <Text style={styles.infoValue}>{new Date().getFullYear()}.08.08</Text>
-        </View>
-      </View>
+      {/* About */}
+      <GlassCard variant="medium" style={{ marginTop: 8 }}>
+        <Text style={{ color: theme.colors.text, fontSize: 14, fontWeight: '600', marginBottom: 12 }}>About</Text>
+        <InfoRow label="Version" value="1.0.0" theme={theme} />
+        <InfoRow label="Theme" value={`${mode} (${isDark ? 'dark' : 'light'})`} theme={theme} />
+        <InfoRow label="Build" value="2026.08.08" theme={theme} last />
+      </GlassCard>
 
-      {/* Logout */}
-      <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-        <Text style={styles.logoutBtnText}>Sign Out</Text>
-      </TouchableOpacity>
+      <GlassButton onPress={handleLogout} variant="danger" size="lg" style={{ marginTop: 12 }}>
+        Sign Out
+      </GlassButton>
 
-      <Text style={styles.footer}>
-        VeriFace Edge — Privacy-first facial authentication{'\n'}
-        © 2026 ahmedkobbi. MIT License.
+      <Text style={{ color: theme.colors.textMuted, fontSize: 11, textAlign: 'center', marginVertical: 20, lineHeight: 18 }}>
+        VeriFace Edge — Privacy-first facial authentication{'\n'}© 2026 ahmedkobbi. MIT License.
       </Text>
     </ScrollView>
   )
 }
 
-function SettingRow({ label, description, value, onValueChange }: {
-  label: string
-  description?: string
-  value: boolean
-  onValueChange: (v: boolean) => void
-}) {
+function SettingRow({ label, desc, value, onChange, theme, last }: any) {
   return (
-    <View style={styles.settingRow}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: last ? 0 : 1, borderBottomColor: theme.colors.glassBorder }}>
       <View style={{ flex: 1 }}>
-        <Text style={styles.settingLabel}>{label}</Text>
-        {description && <Text style={styles.settingDesc}>{description}</Text>}
+        <Text style={{ color: theme.colors.text, fontSize: 13, fontWeight: '500' }}>{label}</Text>
+        {desc && <Text style={{ color: theme.colors.textMuted, fontSize: 10, marginTop: 2 }}>{desc}</Text>}
       </View>
-      <Switch
-        value={value}
-        onValueChange={onValueChange}
-        trackColor={{ false: '#334155', true: '#10b981' }}
-        thumbColor="#fff"
-      />
+      <GlassSwitch value={value} onValueChange={onChange} />
     </View>
   )
 }
 
-function LinkRow({ label, url }: { label: string; url: string }) {
+function LinkRow({ label, url, theme, last }: any) {
   return (
-    <TouchableOpacity style={styles.linkRow} onPress={() => Linking.openURL(url)}>
-      <Text style={styles.linkLabel}>{label}</Text>
-      <Text style={styles.linkArrow}>→</Text>
+    <TouchableOpacity onPress={() => Linking.openURL(url)} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: last ? 0 : 1, borderBottomColor: theme.colors.glassBorder }}>
+      <Text style={{ color: theme.colors.info, fontSize: 13 }}>{label}</Text>
+      <Ionicons name="chevron-forward" size={16} color={theme.colors.textMuted} />
     </TouchableOpacity>
   )
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a' },
-  card: { backgroundColor: '#1e293b', borderRadius: 12, padding: 16, margin: 12, marginBottom: 8 },
-  cardTitle: { color: '#f1f5f9', fontSize: 14, fontWeight: '600', marginBottom: 12 },
-  profileRow: { flexDirection: 'row', alignItems: 'center' },
-  avatar: {
-    width: 48, height: 48, borderRadius: 24,
-    backgroundColor: '#10b981', justifyContent: 'center', alignItems: 'center',
-    marginRight: 12,
-  },
-  avatarText: { color: '#fff', fontSize: 20, fontWeight: '700' },
-  profileName: { color: '#f1f5f9', fontSize: 16, fontWeight: '600' },
-  profileEmail: { color: '#64748b', fontSize: 13, marginTop: 2 },
-  profileRole: { color: '#10b981', fontSize: 11, marginTop: 2, textTransform: 'uppercase' },
-  settingRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#334155' },
-  settingLabel: { color: '#f1f5f9', fontSize: 13, fontWeight: '500' },
-  settingDesc: { color: '#475569', fontSize: 10, marginTop: 2 },
-  linkRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#334155' },
-  linkLabel: { color: '#06b6d4', fontSize: 13 },
-  linkArrow: { color: '#475569', fontSize: 16 },
-  infoRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 },
-  infoLabel: { color: '#64748b', fontSize: 13 },
-  infoValue: { color: '#f1f5f9', fontSize: 13, fontWeight: '500' },
-  logoutBtn: {
-    backgroundColor: '#ef444415', borderRadius: 12, padding: 14,
-    margin: 12, alignItems: 'center', borderWidth: 1, borderColor: '#ef444430',
-  },
-  logoutBtnText: { color: '#ef4444', fontSize: 15, fontWeight: '600' },
-  footer: { color: '#475569', fontSize: 11, textAlign: 'center', marginVertical: 20, lineHeight: 18 },
-})
+function InfoRow({ label, value, theme, last }: any) {
+  return (
+    <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: last ? 0 : 1, borderBottomColor: theme.colors.glassBorder }}>
+      <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>{label}</Text>
+      <Text style={{ color: theme.colors.text, fontSize: 13, fontWeight: '500' }}>{value}</Text>
+    </View>
+  )
+}

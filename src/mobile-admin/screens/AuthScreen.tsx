@@ -1,27 +1,22 @@
 /**
- * VeriFace Edge Mobile — Auth Screen
- *
- * Login with email + password + 2FA (TOTP or WebAuthn).
- *
- * Security:
- *   - Password field is secure (masked)
- *   - 2FA code field auto-advances (6 digits)
- *   - Session stored in SecureStore after successful login
- *   - Biometric authentication prompt on next launch
+ * VeriFace Edge Mobile — Auth Screen (Glassmorphism Edition)
  */
 
 import React, { useState } from 'react'
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
-  KeyboardAvoidingView, Platform, Alert, ActivityIndicator,
+  View, Text, KeyboardAvoidingView, Platform, Alert,
 } from 'react-native'
 import * as Haptics from 'expo-haptics'
+import { LinearGradient } from 'expo-linear-gradient'
+import { useTheme } from '../theme/ThemeContext'
+import { GlassCard, GlassInput, GlassButton, PremiumSpinner, showToast } from '../components/GlassComponents'
 
 interface Props {
   onLogin: (email: string, password: string, twoFactorCode?: string) => Promise<any>
 }
 
 export function AuthScreen({ onLogin }: Props) {
+  const { theme } = useTheme()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [twoFactorCode, setTwoFactorCode] = useState('')
@@ -31,16 +26,14 @@ export function AuthScreen({ onLogin }: Props) {
 
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert('Missing fields', 'Please enter email and password')
+      showToast('Please enter email and password', 'warning')
       return
     }
-
     setLoading(true)
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
 
     try {
       const result = await onLogin(email, password, requiresTwoFactor ? twoFactorCode : undefined)
-
       if (result.requiresTwoFactor) {
         setRequiresTwoFactor(true)
         setTwoFactorMethods(result.methods)
@@ -48,7 +41,7 @@ export function AuthScreen({ onLogin }: Props) {
       }
     } catch (e: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
-      Alert.alert('Login Failed', e.message || 'An error occurred')
+      showToast(e.message || 'Login failed', 'error')
     } finally {
       setLoading(false)
     }
@@ -57,47 +50,65 @@ export function AuthScreen({ onLogin }: Props) {
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}
+      style={{ flex: 1, justifyContent: 'center', padding: 32 }}
     >
-      <View style={styles.content}>
-        <Text style={styles.logo}>VeriFace Edge</Text>
-        <Text style={styles.subtitle}>Admin Console</Text>
+      <View style={{ alignItems: 'center', marginBottom: 40 }}>
+        <LinearGradient
+          colors={['#10b981', '#06b6d4']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={{
+            width: 64, height: 64, borderRadius: 16,
+            justifyContent: 'center', alignItems: 'center',
+            ...theme.shadows.glow,
+          }}
+        >
+          <Text style={{ fontSize: 32 }}>🔐</Text>
+        </LinearGradient>
+        <Text style={{
+          fontSize: 28, fontWeight: '700',
+          color: theme.colors.primary,
+          marginTop: 16, marginBottom: 4,
+        }}>
+          VeriFace Edge
+        </Text>
+        <Text style={{ fontSize: 14, color: theme.colors.textSecondary }}>
+          Admin Console
+        </Text>
+      </View>
 
-        <View style={styles.form}>
-          <TextInput
-            style={styles.input}
-            placeholder="Email"
-            placeholderTextColor="#475569"
+      <GlassCard variant="heavy" style={{ padding: 20 }}>
+        <View style={{ gap: 12 }}>
+          <GlassInput
             value={email}
             onChangeText={setEmail}
-            autoCapitalize="none"
+            placeholder="Email"
             keyboardType="email-address"
             autoComplete="email"
           />
 
-          <TextInput
-            style={styles.input}
-            placeholder="Password"
-            placeholderTextColor="#475569"
+          <GlassInput
             value={password}
             onChangeText={setPassword}
+            placeholder="Password"
             secureTextEntry
             autoComplete="password"
           />
 
           {requiresTwoFactor && (
             <>
-              <Text style={styles.twoFactorLabel}>
+              <Text style={{
+                color: theme.colors.textSecondary, fontSize: 12,
+                textAlign: 'center', marginTop: 4,
+              }}>
                 {twoFactorMethods?.webauthn
                   ? 'Enter 6-digit code or use hardware key'
                   : 'Enter 6-digit code from your authenticator app'}
               </Text>
-              <TextInput
-                style={styles.input}
-                placeholder="000000"
-                placeholderTextColor="#475569"
+              <GlassInput
                 value={twoFactorCode}
                 onChangeText={setTwoFactorCode}
+                placeholder="000000"
                 keyboardType="number-pad"
                 maxLength={6}
                 textAlign="center"
@@ -105,60 +116,24 @@ export function AuthScreen({ onLogin }: Props) {
             </>
           )}
 
-          <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={loading}>
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.buttonText}>
-                {requiresTwoFactor ? 'Verify' : 'Sign In'}
-              </Text>
-            )}
-          </TouchableOpacity>
+          <GlassButton
+            onPress={handleLogin}
+            loading={loading}
+            variant="primary"
+            size="lg"
+            style={{ marginTop: 4 }}
+          >
+            {requiresTwoFactor ? 'Verify' : 'Sign In'}
+          </GlassButton>
         </View>
+      </GlassCard>
 
-        <Text style={styles.footer}>
-          🔒 All data encrypted in transit. Biometric auth required on next launch.
-        </Text>
-      </View>
+      <Text style={{
+        color: theme.colors.textMuted, fontSize: 11,
+        textAlign: 'center', marginTop: 40, paddingHorizontal: 20,
+      }}>
+        🔒 All data encrypted in transit. Biometric auth required on next launch.
+      </Text>
     </KeyboardAvoidingView>
   )
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a' },
-  content: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 },
-  logo: {
-    fontSize: 28, fontWeight: '700',
-    color: '#10b981',
-    marginBottom: 4,
-  },
-  subtitle: { fontSize: 14, color: '#64748b', marginBottom: 40 },
-  form: { width: '100%', maxWidth: 360 },
-  input: {
-    backgroundColor: '#1e293b',
-    borderWidth: 1, borderColor: '#334155',
-    borderRadius: 12,
-    padding: 14,
-    color: '#f1f5f9',
-    fontSize: 15,
-    marginBottom: 12,
-    width: '100%',
-  },
-  twoFactorLabel: {
-    color: '#94a3b8', fontSize: 12,
-    marginBottom: 8, textAlign: 'center',
-  },
-  button: {
-    backgroundColor: '#10b981',
-    borderRadius: 12,
-    padding: 14,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  footer: {
-    color: '#475569', fontSize: 11,
-    textAlign: 'center', marginTop: 40,
-    paddingHorizontal: 20,
-  },
-})
