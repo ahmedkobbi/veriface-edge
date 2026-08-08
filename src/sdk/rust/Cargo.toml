@@ -1,0 +1,27 @@
+[package]
+name = "veriface-edge"
+version = "1.0.0"
+edition = "2021"
+description = "Privacy-first facial authentication SDK for Rust. High-performance server-side auth verification."
+license = "MIT"
+authors = ["ahmedkobbi <ahmedkobbi@users.noreply.github.com>"]
+homepage = "https://github.com/ahmedkobbi/veriface-edge"
+repository = "https://github.com/ahmedkobbi/veriface-edge"
+keywords = ["facial-authentication", "biometric", "face-recognition", "liveness", "zero-knowledge"]
+categories = ["authentication", "cryptography", "api-bindings"]
+
+[dependencies]
+reqwest = { version = "0.12", features = ["json"], default-features = false, optional = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+tokio = { version = "1.0", features = ["full"], optional = true }
+
+[features]
+default = ["async"]
+async = ["dep:reqwest", "dep:tokio", "reqwest/rustls-tls"]
+blocking = ["reqwest/blocking", "reqwest/rustls-tls"]
+
+[[example]]
+name = "verify_token"
+required-features = ["async"]

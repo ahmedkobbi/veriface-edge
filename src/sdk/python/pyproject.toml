@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "veriface-edge"
+version = "1.0.0"
+description = "Privacy-first facial authentication SDK for Python. Server-side auth verification + token introspection."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "ahmedkobbi", email = "ahmedkobbi@users.noreply.github.com" }]
+homepage = "https://github.com/ahmedkobbi/veriface-edge"
+repository = "https://github.com/ahmedkobbi/veriface-edge"
+keywords = ["facial-authentication", "biometric", "face-recognition", "liveness", "zero-knowledge", "privacy", "fido2", "ed25519", "aes-gcm"]
+requires-python = ">=3.9"
+dependencies = [
+    "httpx>=0.25.0",
+    "cryptography>=41.0.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-asyncio>=0.21", "ruff>=0.1.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
