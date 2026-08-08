@@ -25,8 +25,8 @@
 <a href="https://github.com/ahmedkobbi?tab=followers">
 <img src="https://img.shields.io/github/followers/ahmedkobbi?label=Followers&style=for-the-badge&color=58a6ff&labelColor=0d1117" />
 </a>
-<a href="https://github.com/ahmedkobbi/veriface-edge">
-<img src="https://img.shields.io/badge/Project-VeriFace%20Edge-00ff9c?style=for-the-badge&logo=vercel&logoColor=white" />
+<a href="https://t.me/AKAI_SHUITCHI">
+<img src="https://img.shields.io/badge/Telegram-@AKAI__SHUITCHI-26A5E4?style=for-the-badge&logo=telegram&logoColor=white" />
 </a>
 <a href="mailto:ahmedkobbi@users.noreply.github.com">
 <img src="https://img.shields.io/badge/Email-Contact-EA4335?style=for-the-badge&logo=gmail&logoColor=white" />
@@ -40,17 +40,22 @@
 
 ## About Me
 
-I'm a **Cybersecurity Expert, Software Developer, and IT Systems Engineer** based in Bab Ezzouar, Algeria. I work in the IT department of a large enterprise group, building and hardening systems used across subsidiaries and regional units.
+I'm **Ahmed Abdessamed KOBBI** (aka **DZxZeroDay**) — a Cybersecurity Expert, Software Developer, and IT Systems Engineer based in Bab Ezzouar, Algeria. I secure and ship systems for enterprise groups.
 
-On the **research side**, I reverse binaries, analyze malware, and run vulnerability assessments. On the **build side**, I ship desktop and web tools that teams actually use: ERP workflows, HR document systems, document management platforms, and biometric authentication SaaS.
+I work in the IT department of a large enterprise group, building and hardening systems used across subsidiaries and regional units. Day to day that means infra, internal apps, and security reviews — often under NDA.
 
-My flagship open-source project, **[VeriFace Edge](https://github.com/ahmedkobbi/veriface-edge)**, is a production-grade facial authentication platform with post-quantum cryptography, zero-knowledge proofs, 8 cross-platform SDKs, and military-grade security hardening — validated through 4 rounds of adversarial penetration testing (88 findings identified and remediated).
+On the **research side**, I reverse binaries, analyze malware, and run vulnerability assessments. On the **build side**, I ship desktop and web tools teams actually use: ERP workflows, HR documents, document management, licensing platforms, and biometric authentication SaaS.
 
 ---
 
 ## Skills & Expertise
 
 ### Cybersecurity
+
+<table>
+<tr>
+<td>
+
 ![CISSP](https://img.shields.io/badge/CISSP-Formation-0052CC?style=flat-square)
 ![CEH](https://img.shields.io/badge/CEH-Certified-red?style=flat-square)
 ![Penetration Testing](https://img.shields.io/badge/Penetration%20Testing-Expert-00ff9c?style=flat-square)
@@ -61,41 +66,55 @@ My flagship open-source project, **[VeriFace Edge](https://github.com/ahmedkobbi
 ![APK/WinPE Reversing](https://img.shields.io/badge/APK%2FWinPE%20Reversing-Expert-ff9c00?style=flat-square)
 ![Unpacking & Devirtualization](https://img.shields.io/badge/Unpacking%20%26%20Devirtualization-Expert-9c00ff?style=flat-square)
 ![Deobfuscation](https://img.shields.io/badge/Deobfuscation-Expert-00ff9c?style=flat-square)
+![Vulnerability Assessment](https://img.shields.io/badge/Vulnerability%20Assessment-Expert-ff0040?style=flat-square)
+![EDR Evasion Analysis](https://img.shields.io/badge/EDR%20Evasion%20Analysis-Expert-9c00ff?style=flat-square)
+
+</td>
+</tr>
+</table>
 
 ### Development
+
 ![C#](https://img.shields.io/badge/C%23-239120?style=flat-square&logo=csharp&logoColor=white)
 ![WPF](https://img.shields.io/badge/WPF-512BD4?style=flat-square)
 ![.NET 8](https://img.shields.io/badge/.NET%208-512BD4?style=flat-square&logo=dotnet&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat-square&logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-61DAFB?style=flat-square&logo=react&logoColor=black)
+![Next.js](https://img.shields.io/badge/Next.js_16-000000?style=flat-square&logo=next.js&logoColor=white)
 ![Express](https://img.shields.io/badge/Express-000000?style=flat-square&logo=express&logoColor=white)
 ![Flutter](https://img.shields.io/badge/Flutter-02569B?style=flat-square&logo=flutter&logoColor=white)
-![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat-square&logo=typescript&logoColor=white)
+![Dart](https://img.shields.io/badge/Dart-0175C2?style=flat-square&logo=dart&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white)
 ![Swift](https://img.shields.io/badge/Swift-F05138?style=flat-square&logo=swift&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-7F52FF?style=flat-square&logo=kotlin&logoColor=white)
-![Dart](https://img.shields.io/badge/Dart-0175C2?style=flat-square&logo=dart&logoColor=white)
 ![Go](https://img.shields.io/badge/Go-00ADD8?style=flat-square&logo=go&logoColor=white)
 ![Rust](https://img.shields.io/badge/Rust-000000?style=flat-square&logo=rust&logoColor=white)
 ![PHP](https://img.shields.io/badge/PHP-777BB4?style=flat-square&logo=php&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-339933?style=flat-square&logo=node.js&logoColor=white)
+![GraphQL](https://img.shields.io/badge/GraphQL-E10098?style=flat-square&logo=graphql&logoColor=white)
 
 ### Tools & Frameworks
-![IDA Pro](https://img.shields.io/badge/IDA%20Pro-Reverse%20Engineering-2D5BFF?style=flat-square)
+
+![IDA Pro](https://img.shields.io/badge/IDA%20Pro-Reversing-2D5BFF?style=flat-square)
 ![Ghidra](https://img.shields.io/badge/Ghidra-NSA-6E2D8C?style=flat-square)
 ![Binary Ninja](https://img.shields.io/badge/Binary%20Ninja-Reversing-3D6FCE?style=flat-square)
 ![dnSpy](https://img.shields.io/badge/dnSpy-.NET%20Debugger-6A1B9A?style=flat-square)
 ![Malcat](https://img.shields.io/badge/Malcat-Malware%20Analysis-FF5722?style=flat-square)
 ![Wireshark](https://img.shields.io/badge/Wireshark-Network%20Analysis-1679A7?style=flat-square&logo=wireshark&logoColor=white)
 ![Frida](https://img.shields.io/badge/Frida-Dynamic%20Instrumentation-1F2D3D?style=flat-square)
+![jadx](https://img.shields.io/badge/jadx-APK%20Decompiler-7F52FF?style=flat-square)
+![apktool](https://img.shields.io/badge/apktool-APK%20Analysis-34A853?style=flat-square)
 ![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)
 ![Kubernetes](https://img.shields.io/badge/Kubernetes-326CE5?style=flat-square&logo=kubernetes&logoColor=white)
-![Next.js](https://img.shields.io/badge/Next.js_16-000000?style=flat-square&logo=next.js&logoColor=white)
 ![Prisma](https://img.shields.io/badge/Prisma-2D3748?style=flat-square&logo=prisma&logoColor=white)
 ![TFLite](https://img.shields.io/badge/TFLite-On%20Device%20ML-FF6F00?style=flat-square&logo=tensorflow&logoColor=white)
 ![QuestPDF](https://img.shields.io/badge/QuestPDF-.NET%20Docs-8B5CF6?style=flat-square)
+![Bun](https://img.shields.io/badge/Bun-000000?style=flat-square&logo=bun&logoColor=white)
 ![Linux](https://img.shields.io/badge/Linux-Kali%20%7C%20Ubuntu-FCC624?style=flat-square&logo=linux&logoColor=black)
 ![Git](https://img.shields.io/badge/Git-F05032?style=flat-square&logo=git&logoColor=white)
 
 ### Security & Cryptography
+
 ![Post-Quantum](https://img.shields.io/badge/Post--Quantum-ML--DSA--87%20%7C%20FIPS%20204-8B5CF6?style=flat-square)
 ![ZK Proofs](https://img.shields.io/badge/ZK-PLONK%20%7C%20snarkjs-EC4899?style=flat-square)
 ![FIPS 140-3](https://img.shields.io/badge/FIPS%20140--3-Ready-6B21A8?style=flat-square)
@@ -104,54 +123,88 @@ My flagship open-source project, **[VeriFace Edge](https://github.com/ahmedkobbi
 ![Trivy](https://img.shields.io/badge/Trivy-Container%20Scanning-1904DA?style=flat-square)
 ![SOC 2](https://img.shields.io/badge/SOC%202-Type%20II%20Ready-0EA5E9?style=flat-square)
 ![GDPR](https://img.shields.io/badge/GDPR-Crypto--Erasure-0066CC?style=flat-square)
+![RBAC](https://img.shields.io/badge/RBAC-Access%20Control-6366F1?style=flat-square)
+![MFA](https://img.shields.io/badge/MFA-Multi%20Factor-8B5CF6?style=flat-square)
+
+### Databases & Infrastructure
+
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat-square&logo=postgresql&logoColor=white)
+![MySQL](https://img.shields.io/badge/MySQL-4479A1?style=flat-square&logo=mysql&logoColor=white)
+![MongoDB](https://img.shields.io/badge/MongoDB-47A248?style=flat-square&logo=mongodb&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-DC382D?style=flat-square&logo=redis&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white)
+![Nginx](https://img.shields.io/badge/Nginx-009639?style=flat-square&logo=nginx&logoColor=white)
+![Caddy](https://img.shields.io/badge/Caddy-1F88C0?style=flat-square&logo=caddy&logoColor=white)
+![Stripe](https://img.shields.io/badge/Stripe-635BFF?style=flat-square&logo=stripe&logoColor=white)
+
+---
+
+## GitHub Repositories
+
+<div align="center">
+
+[![VeriFace Edge](https://github-readme-stats.vercel.app/api/pin/?username=ahmedkobbi&repo=veriface-edge&theme=github_dark&title_color=00ff9c&icon_color=00ff9c&bg_color=0d1117&border_color=30363d)](https://github.com/ahmedkobbi/veriface-edge)
+[![Aegis License Platform](https://github-readme-stats.vercel.app/api/pin/?username=ahmedkobbi&repo=aegis-license-platform&theme=github_dark&title_color=00ff9c&icon_color=00ff9c&bg_color=0d1117&border_color=30363d)](https://github.com/ahmedkobbi/aegis-license-platform)
+
+</div>
+
+### Repo Summary
+
+| Repository | Description | Tech Stack |
+|------------|-------------|------------|
+| [veriface-edge](https://github.com/ahmedkobbi/veriface-edge) | Privacy-first facial authentication SaaS with post-quantum crypto, ZK proofs, 8 SDKs, military-grade security (OWASP 10/10 PASS, 88 findings fixed) | TypeScript, Next.js 16, Prisma, Ed25519, ML-DSA-87, PLONK, Docker, K8s, Redis, PostgreSQL |
+| [aegis-license-platform](https://github.com/ahmedkobbi/aegis-license-platform) | Production-grade licensing, entitlement & authentication platform with RBAC, GraphQL, customer portal, webhook retry queue, audit log, MFA | Next.js 16, Prisma, GraphQL, RBAC, MFA, Webhook Queue, Audit Log |
 
 ---
 
 ## Selected Work
 
-### Enterprise ERP Platform — In Production
-Multi-site operations needed one system for workflows, inventory, and reporting across transport and holding entities. Customized Perfex CRM with PHP/MySQL, REST integrations, and BI views.
-`Perfex CRM` `PHP` `MySQL` `REST API` `BI`
+### Production Systems
 
-### ENTERPRISE_ODM — In Production
-HR mission orders were slow and hard to print to official standards. Built a WPF/.NET 8 desktop app with MVVM and QuestPDF for pixel-accurate document generation.
-`WPF` `.NET 8` `C#` `QuestPDF` `MVVM`
+| Project | Status | Problem | Approach | Stack |
+|---------|--------|---------|----------|-------|
+| **Enterprise ERP Platform** | In Production | Multi-site ops needed one system for workflows, inventory, and reporting | Customized Perfex CRM with REST integrations and BI views | `Perfex CRM` `PHP` `MySQL` `REST API` `BI` |
+| **ENTERPRISE_ODM** | In Production | HR mission orders were slow and hard to print to official standards | WPF/.NET 8 desktop app with MVVM and QuestPDF for pixel-accurate documents | `WPF` `.NET 8` `C#` `QuestPDF` `MVVM` |
+| **Enterprise GED Platform** | In Production | Documents lacked controlled access, version history, and auditability | React/Express/MongoDB with RBAC, search, versioning, audit logs | `React` `Express` `Node.js` `MongoDB` `RBAC` |
+| **Aegis License Platform** | Open Source | Software vendors need licensing, entitlement, and auth in one platform | Next.js 16 + Prisma + GraphQL + RBAC + MFA + webhook retry queue | `Next.js` `Prisma` `GraphQL` `RBAC` `MFA` |
+| **VeriFace Edge** | Open Source | Face auth without raw biometric data leaving the device | On-device crypto + ZK proofs + server-side signing proxy + 8 SDKs | `TypeScript` `Ed25519` `ML-DSA-87` `PLONK` `Docker` `K8s` |
 
-### ATHAR AI — Research
-Field archaeologists needed symbol classification without cloud connectivity. Built a Flutter app with on-device TensorFlow Lite models for real-time inscription classification.
-`Flutter` `Dart` `TFLite` `ML` `Mobile`
+### Research Builds
 
-### Enterprise GED Platform — In Production
-Documents lacked controlled access, version history, and auditability. Built a React/Express/MongoDB stack with RBAC, search, versioning, and security audit logs.
-`React` `Express` `Node.js` `MongoDB` `RBAC`
-
-### VeriFace Edge — Open Source
-Privacy-first facial authentication SaaS with post-quantum cryptography, zero-knowledge proofs, 8 SDKs, and military-grade security hardening.
-`Next.js` `TypeScript` `Ed25519` `ML-DSA-87` `PLONK` `Docker` `K8s`
+| Project | Problem | Approach | Stack |
+|---------|---------|----------|-------|
+| **ATHAR AI** | Field archaeologists needed symbol classification without cloud connectivity | Flutter + on-device TensorFlow Lite models for real-time inscription classification | `Flutter` `Dart` `TFLite` `ML` |
+| **SOC Operation Dashboard** | Real-time security monitoring needed for enterprise | Threat feeds, firewall telemetry, resource logs, attack visualization | `React` `Real-time` `Security` `Dashboard` |
 
 ---
 
 ## Security Research & Writeups
 
-| Category | Severity | Title | Tags |
-|----------|----------|-------|------|
-| Pentest | CRITICAL (CVSS 9.8) | Linux Kernel eBPF Subsystem Ring 0 Memory Write (CVE-2026-21890) | `eBPF LPE` `Verifier Bug` |
-| Malware | CRITICAL (CVSS 9.8) | LockBit Ransomware V3 Binary Dissection | `Anti-Debug` `IOCP Encryption` |
-| Reverse | HIGH (CVSS 8.8) | Kernel-Mode Rootkit Driver Extraction (BYOVD) | `SSDT Hooking` `Ghidra` |
-| Malware | CRITICAL (CVSS 9.1) | Qakbot Malware DLL Side-Loading & Anti-EDR | `DLL Side-Loading` `EDR Evasion` |
-| Malware | HIGH (CVSS 8.4) | Android Banking Trojan Unpacking & Deobfuscation | `Anubis` `Frida Hooking` `APK Unpacking` |
+| Category | Severity | Title | Target | Tags |
+|----------|----------|-------|--------|------|
+| Pentest | CRITICAL (CVSS 9.8) | Linux Kernel eBPF Subsystem Ring 0 Memory Write | Linux Kernel 6.12 | `CVE-2026-21890` `eBPF LPE` `Verifier Bug` |
+| Malware | CRITICAL (CVSS 9.8) | LockBit Ransomware V3 Binary Dissection | Win32 PE64 | `LockBit 3.0` `Anti-Debug` `IOCP Encryption` |
+| Reverse | HIGH (CVSS 8.8) | Kernel-Mode Rootkit Driver Extraction (BYOVD) | Windows Ring 0 | `BYOVD` `SSDT Hooking` `Ghidra` |
+| Malware | CRITICAL (CVSS 9.1) | Qakbot Malware DLL Side-Loading & Anti-EDR | Windows x64 | `Qakbot` `DLL Side-Loading` `EDR Evasion` |
+| Malware | HIGH (CVSS 8.4) | Android Banking Trojan Unpacking & Deobfuscation | Android DEX | `Anubis` `Frida Hooking` `APK Unpacking` |
+| General | HIGH | APK Patching, Modding & Reverse Engineering | Android | `reverse` `patching` `modding` |
 
-Full writeups at: [portfolio-eldn.vercel.app](https://portfolio-eldn.vercel.app/en)
+Full writeups at: [portfolio-eldn.vercel.app/en](https://portfolio-eldn.vercel.app/en)
 
 ---
 
-## Featured Project
+## Services
 
-<div align="center">
-
-[![VeriFace Edge](https://github-readme-stats.vercel.app/api/pin/?username=ahmedkobbi&repo=veriface-edge&theme=github_dark&title_color=00ff9c&icon_color=00ff9c&bg_color=0d1117&border_color=30363d)](https://github.com/ahmedkobbi/veriface-edge)
-
-</div>
+| Lane | What I Do |
+|------|-----------|
+| **Penetration Testing** | Network, web, and mobile app security assessments with full reporting |
+| **Vulnerability Assessment** | Systematic security audits with CVSS scoring and remediation guidance |
+| **Reverse Engineering** | APK/WinPE reversing, unpacking, devirtualization, and deobfuscation |
+| **Malware Analysis** | Static and dynamic analysis of ransomware, trojans, rootkits, and EDR evasion |
+| **Desktop & Web Development** | Enterprise apps (ERP, GED, HR, licensing) with production-grade security |
+| **Post-Quantum Cryptography** | ML-DSA-87, ZK proofs, FIPS 140-3 readiness, and key management |
+| **IT Infrastructure** | Multi-site network design, server admin, and enterprise ops |
+| **Custom Apps** | Tailored software solutions for enterprise workflows |
 
 ---
 
@@ -172,20 +225,6 @@ Full writeups at: [portfolio-eldn.vercel.app](https://portfolio-eldn.vercel.app/
 
 ---
 
-## What I Can Help With
-
-| Lane | Description |
-|------|-------------|
-| **Penetration Testing** | Network, web, and mobile app security assessments with full reporting |
-| **Vulnerability Assessment** | Systematic security audits with CVSS scoring and remediation guidance |
-| **Reverse Engineering** | APK/WinPE reversing, unpacking, devirtualization, and deobfuscation |
-| **Malware Analysis** | Static and dynamic analysis of ransomware, trojans, and rootkits |
-| **Desktop & Web Development** | Enterprise apps (ERP, GED, HR systems) with production-grade security |
-| **Post-Quantum Cryptography** | ML-DSA-87, ZK proofs, FIPS 140-3 readiness, and key management |
-| **IT Infrastructure** | Multi-site network design, server admin, and enterprise ops |
-
----
-
 ## Activity Graph
 
 <div align="center">
@@ -202,8 +241,8 @@ Full writeups at: [portfolio-eldn.vercel.app](https://portfolio-eldn.vercel.app/
 
 [![Portfolio](https://img.shields.io/badge/Portfolio-portfolio--eldn.vercel.app-00ff9c?style=for-the-badge&logo=vercel&logoColor=white)](https://portfolio-eldn.vercel.app/en)
 [![GitHub](https://img.shields.io/badge/GitHub-ahmedkobbi-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/ahmedkobbi)
+[![Telegram](https://img.shields.io/badge/Telegram-@AKAI__SHUITCHI-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/AKAI_SHUITCHI)
 [![Email](https://img.shields.io/badge/Email-Contact-EA4335?style=for-the-badge&logo=gmail&logoColor=white)](mailto:ahmedkobbi@users.noreply.github.com)
-[![GitHub Discussions](https://img.shields.io/badge/Discussions-VeriFace%20Edge-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/ahmedkobbi/veriface-edge/discussions)
 
 </div>
 
@@ -216,7 +255,8 @@ Full writeups at: [portfolio-eldn.vercel.app](https://portfolio-eldn.vercel.app/
 </div>
 
 <div align="center">
-<sub>© 2026 Ahmed Abdessamed KOBBI (DZxZeroDay) · Cybersecurity Expert · Software Developer · Based in Bab Ezzouar, Algeria</sub>
+<sub>© 2026 Ahmed Abdessamed KOBBI (DZxZeroDay) · Cybersecurity Expert · Software Developer · Based in Bab Ezzouar, Algeria</sub><br>
+<sub>Location: Bab Ezzouar, Algeria · PGP: B6C7E2D1 · Built with Next.js & passion</sub>
 </div>
 
 <!-- Footer Banner -->
