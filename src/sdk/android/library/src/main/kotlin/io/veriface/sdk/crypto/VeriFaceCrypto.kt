@@ -22,20 +22,54 @@ class VeriFaceCrypto {
 
     private val random = SecureRandom()
 
-    // Ephemeral session keys (rotated per session)
+    // SECURITY FIX (S-01): The signing key is the TENANT's Ed25519 private key
+    // (provided via config.signingPrivateKey), NOT an ephemeral key.
+    // The backend verifies the JWT against the tenant's stored public key —
+    // signing with an ephemeral key would cause every auth request to fail.
     private val signingKey: Ed25519PrivateKeyParameters
+    // X25519 keypair remains ephemeral (used only for ECDH session key derivation)
     private val keyAgreementKeyPair: X25519KeyPair
 
-    init {
-        // Generate Ed25519 signing keypair
-        val gen = Ed25519KeyPairGenerator()
-        gen.init(Ed25519KeyGenerationParameters(random))
-        val signingKeyPair = gen.generateKeyPair()
-        this.signingKey = signingKeyPair.private as Ed25519PrivateKeyParameters
+    /**
+     * Initialize with the tenant's signing private key.
+     *
+     * SECURITY FIX (S-01): Previously, this class generated an ephemeral Ed25519
+     * keypair in the init{} block. The backend's C-1 fix changed verification to
+     * use the tenant's STORED public key — so the ephemeral key never matched,
+     * and every auth request failed with JWT_INVALID.
+     *
+     * Now: the tenant's signing private key is loaded from the hex string provided
+     * in VeriFaceConfig.signingPrivateKey. The X25519 keypair remains ephemeral
+     * (it's only used for per-session ECDH, not for JWT signing).
+     *
+     * @param signingPrivateKeyHex The tenant's Ed25519 private key (64 hex chars = 32 bytes).
+     *   This key is returned ONCE at tenant creation (POST /api/tenant → signingPrivateKey).
+     * @throws IllegalArgumentException if the key is invalid hex or wrong length.
+     */
+    constructor(signingPrivateKeyHex: String) {
+        // Validate format: 64 hex chars = 32 bytes
+        require(signingPrivateKeyHex.length == 64) {
+            "signingPrivateKey must be 64 hex chars (32 bytes). Got: ${signingPrivateKeyHex.length} chars."
+        }
+        require(signingPrivateKeyHex.all { it.isHexDigit() }) {
+            "signingPrivateKey must be valid hex (0-9, a-f)."
+        }
 
-        // Generate X25519 key agreement keypair
+        val keyBytes = hexToBytes(signingPrivateKeyHex)
+        require(keyBytes.size == 32) {
+            "signingPrivateKey must decode to 32 bytes. Got: ${keyBytes.size} bytes."
+        }
+
+        // Load the tenant's Ed25519 private key from the raw bytes
+        this.signingKey = Ed25519PrivateKeyParameters(keyBytes, 0)
+
+        // X25519 keypair is still ephemeral (per-session ECDH)
         this.keyAgreementKeyPair = generateX25519KeyPair()
     }
+
+    /** Helper: check if a character is a hex digit. */
+    private fun Char.isHexDigit(): Boolean =
+        this in '0'..'9' || this in 'a'..'f' || this in 'A'..'F'
 
     /** X25519 keypair (private + public key bytes). */
     data class X25519KeyPair(val privateKey: ByteArray, val publicKey: ByteArray)

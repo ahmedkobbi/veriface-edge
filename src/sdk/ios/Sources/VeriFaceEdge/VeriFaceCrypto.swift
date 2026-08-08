@@ -15,12 +15,38 @@ import BLAKE3
 
 final class VeriFaceCrypto {
 
-    // Ephemeral session keys (rotated per session)
+    // SECURITY FIX (S-01): The signing key is now the TENANT's Ed25519 private key
+    // (provided via config.signingPrivateKey), NOT an ephemeral key.
+    // The backend verifies the JWT against the tenant's stored public key —
+    // signing with an ephemeral key would cause every auth request to fail.
     private var signingKey: Curve25519.Signing.PrivateKey
+    // X25519 keypair remains ephemeral (used only for ECDH session key derivation)
     private var keyAgreementKey: Curve25519.KeyAgreement.PrivateKey
 
-    init() {
-        self.signingKey = Curve25519.Signing.PrivateKey()
+    /// Initialize with the tenant's signing private key.
+    ///
+    /// - Parameter signingPrivateKeyHex: The tenant's Ed25519 private key (64 hex chars = 32 bytes).
+    ///   This key is returned ONCE at tenant creation (POST /api/tenant → signingPrivateKey).
+    ///   The backend stores the corresponding public key (tenant.signingPubKey) and verifies
+    ///   all JWTs against it.
+    ///
+    /// - Throws: `VeriFaceError.unknown` if the key is invalid hex or wrong length.
+    init(signingPrivateKeyHex: String) throws {
+        // Validate format: 64 hex chars = 32 bytes
+        guard signingPrivateKeyHex.count == 64,
+              signingPrivateKeyHex.allSatisfy({ $0.isHexDigit }) else {
+            throw VeriFaceError.unknown("signingPrivateKey must be 64 hex chars (32 bytes). Got: \(signingPrivateKeyHex.count) chars.")
+        }
+
+        let keyBytes = try hexToBytes(signingPrivateKeyHex)
+        guard keyBytes.count == 32 else {
+            throw VeriFaceError.unknown("signingPrivateKey must decode to 32 bytes. Got: \(keyBytes.count) bytes.")
+        }
+
+        // Load the tenant's Ed25519 private key from the raw bytes
+        self.signingKey = try Curve25519.Signing.PrivateKey(rawRepresentation: Data(keyBytes))
+
+        // X25519 keypair is still ephemeral (per-session ECDH)
         self.keyAgreementKey = Curve25519.KeyAgreement.PrivateKey()
     }
 
@@ -209,5 +235,12 @@ extension Data {
 extension Array where Element == UInt8 {
     var hexString: String {
         return map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+// SECURITY FIX (S-01): Character extension for hex validation
+extension Character {
+    var isHexDigit: Bool {
+        return ("0"..."9").contains(self) || ("a"..."f").contains(self) || ("A"..."F").contains(self)
     }
 }

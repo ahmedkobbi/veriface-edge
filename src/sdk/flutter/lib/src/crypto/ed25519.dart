@@ -4,6 +4,11 @@
 // native platforms and WebCrypto on web). Ed25519 is used to sign the
 // session JWT that the SDK sends to the backend — proving the SDK holds
 // the tenant's signing key without revealing it.
+//
+// SECURITY FIX (S-01): The signing key is now the TENANT's Ed25519 private key
+// (provided via config.signingPrivateKey), NOT an ephemeral key. The backend
+// verifies the JWT against the tenant's stored public key — signing with an
+// ephemeral key would cause every auth request to fail.
 
 import 'package:cryptography/cryptography.dart';
 
@@ -26,12 +31,53 @@ class Ed25519KeyPair {
   }
 }
 
-/// Generate a new Ed25519 keypair.
+/// Generate a new Ed25519 keypair (ephemeral).
+///
+/// NOTE: This is used ONLY for X25519 ECDH keypairs. Ed25519 signing keys
+/// should be loaded from the tenant's stored private key via
+/// [loadEd25519KeyPair] (S-01 fix).
 Future<Ed25519KeyPair> generateEd25519KeyPair() async {
   final algorithm = Ed25519();
   final pair = await algorithm.newKeyPair();
   final publicKey = await pair.extractPublicKey();
   return Ed25519KeyPair(publicKey as SimplePublicKey, pair as SimplePrivateKey);
+}
+
+/// SECURITY FIX (S-01): Load an Ed25519 keypair from the tenant's stored
+/// private key (hex string).
+///
+/// The tenant's signing private key is returned ONCE at tenant creation
+/// (POST /api/tenant → signingPrivateKey). The SDK loads it here and uses
+/// it to sign JWTs. The backend verifies against the corresponding public
+/// key stored in tenant.signingPubKey.
+///
+/// [privateKeyHex] must be 64 hex chars (32 bytes).
+/// Throws [ArgumentError] if the key is invalid.
+Future<Ed25519KeyPair> loadEd25519KeyPair(String privateKeyHex) async {
+  // Validate format: 64 hex chars = 32 bytes
+  if (privateKeyHex.length != 64) {
+    throw ArgumentError(
+      'signingPrivateKey must be 64 hex chars (32 bytes). '
+      'Got: ${privateKeyHex.length} chars.',
+    );
+  }
+  if (!RegExp(r'^[0-9a-fA-F]+$').hasMatch(privateKeyHex)) {
+    throw ArgumentError('signingPrivateKey must be valid hex (0-9, a-f).');
+  }
+
+  final keyBytes = hexToBytes(privateKeyHex);
+  if (keyBytes.length != 32) {
+    throw ArgumentError(
+      'signingPrivateKey must decode to 32 bytes. Got: ${keyBytes.length} bytes.',
+    );
+  }
+
+  // Create a SimplePrivateKey from the raw bytes
+  final privateKey = SimplePrivateKey(keyBytes);
+  final algorithm = Ed25519();
+  final publicKey = await privateKey.extractPublicKey();
+
+  return Ed25519KeyPair(publicKey as SimplePublicKey, privateKey);
 }
 
 /// Sign a message with Ed25519. Returns the signature as hex (128 hex chars).

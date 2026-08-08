@@ -5,7 +5,11 @@
 //
 // Usage:
 //   VeriFaceWidget(
-//     config: VeriFaceConfig(tenantId: '...', apiKey: '...'),
+//     config: VeriFaceConfig(
+//       tenantId: '...',
+//       apiKey: '...',
+//       signingPrivateKey: 'ed37ea33...',  // 64 hex chars — returned once at tenant creation
+//     ),
 //     flow: 'authenticate',
 //     externalUserId: 'user_123',
 //     onSuccess: (result) => print('Token: ${result.token}'),

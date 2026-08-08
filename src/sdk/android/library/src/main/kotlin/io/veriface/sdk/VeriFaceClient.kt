@@ -13,6 +13,7 @@
 //     config = VeriFaceConfig(
 //       tenantId = "tnt_...",
 //       apiKey = "vf_live_...",
+//       signingPrivateKey = "ed37ea33...", // 64 hex chars — returned once at tenant creation
 //       apiBaseUrl = "https://api.veriface.io"
 //     )
 //   )
@@ -37,7 +38,13 @@ class VeriFaceClient(
     private val config: VeriFaceConfig
 ) {
     private val api = VeriFaceApi(config)
-    private val crypto = VeriFaceCrypto()
+
+    // SECURITY FIX (S-01): Pass the tenant's signing private key to the crypto module.
+    // The crypto module loads the Ed25519 private key from the hex string and uses it
+    // to sign JWTs. Previously, the crypto module generated an ephemeral key — which
+    // didn't match the backend's stored public key, causing every auth to fail.
+    private val crypto = VeriFaceCrypto(config.signingPrivateKey)
+
     private val camera = VeriFaceCamera(context)
     private val pipeline = VeriFacePipeline().also { it.init(context) }
 

@@ -4,6 +4,18 @@
 class VeriFaceConfig {
   final String tenantId;
   final String apiKey;
+  /// SECURITY FIX (S-01): The tenant's Ed25519 signing private key (hex, 64 chars).
+  ///
+  /// This key is returned ONCE at tenant creation (POST /api/tenant → signingPrivateKey).
+  /// The SDK uses it to sign the session-verify JWT. The backend verifies against
+  /// the tenant's stored public key (tenant.signingPubKey).
+  ///
+  /// Without this key, the SDK cannot produce a valid JWT signature — every auth
+  /// request will fail with 401 JWT_INVALID.
+  ///
+  /// SECURITY: Store this key in flutter_secure_storage (which uses Keystore on
+  /// Android and Keychain on iOS). Never hardcode it in source code.
+  final String signingPrivateKey;
   final String apiBaseUrl;
   final String modelVersion;
   final int captureDurationMs;
@@ -13,6 +25,7 @@ class VeriFaceConfig {
   const VeriFaceConfig({
     required this.tenantId,
     required this.apiKey,
+    required this.signingPrivateKey,
     this.apiBaseUrl = 'https://api.veriface.io',
     this.modelVersion = 'v1.0.0',
     this.captureDurationMs = 1800,

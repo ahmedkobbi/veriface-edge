@@ -4,6 +4,21 @@ package io.veriface.sdk.api
 data class VeriFaceConfig(
     val tenantId: String,
     val apiKey: String,
+    /**
+     * SECURITY FIX (S-01): The tenant's Ed25519 signing private key (hex, 64 chars).
+     *
+     * This key is returned ONCE at tenant creation (POST /api/tenant → signingPrivateKey).
+     * The SDK uses it to sign the session-verify JWT. The backend verifies against
+     * the tenant's stored public key (tenant.signingPubKey).
+     *
+     * Without this key, the SDK cannot produce a valid JWT signature — every auth
+     * request will fail with 401 JWT_INVALID.
+     *
+     * SECURITY: Store this key in the Android Keystore (hardware-backed on Android 7+).
+     * Never hardcode it in source code or resources. Load it from encrypted storage
+     * at runtime.
+     */
+    val signingPrivateKey: String,
     val apiBaseUrl: String = "https://api.veriface.io",
     val modelVersion: String = "v1.0.0",
     val captureDurationMs: Int = 1800,

@@ -22,9 +22,10 @@ import CryptoKit
 ///   - The SDK never writes face frames or embeddings to disk.
 ///
 /// Usage:
-///   let client = VeriFaceClient(config: VeriFaceConfig(
+///   let client = try VeriFaceClient(config: VeriFaceConfig(
 ///     tenantId: "tnt_...",
 ///     apiKey: "vf_live_...",
+///     signingPrivateKey: "ed37ea33...",  // 64 hex chars — returned once at tenant creation
 ///     apiBaseUrl: URL(string: "https://api.veriface.io")!
 ///   ))
 ///   let result = try await client.authenticate(externalUserId: "user_123")
@@ -37,10 +38,14 @@ public final class VeriFaceClient {
     private let camera: VeriFaceCamera
     private let pipeline: VeriFacePipeline
 
-    public init(config: VeriFaceConfig) {
+    public init(config: VeriFaceConfig) throws {
         self.config = config
         self.session = URLSession(configuration: .default)
-        self.crypto = VeriFaceCrypto()
+        // SECURITY FIX (S-01): Pass the tenant's signing private key to the crypto module.
+        // The crypto module loads the Ed25519 private key from the hex string and uses it
+        // to sign JWTs. Previously, the crypto module generated an ephemeral key — which
+        // didn't match the backend's stored public key, causing every auth to fail.
+        self.crypto = try VeriFaceCrypto(signingPrivateKeyHex: config.signingPrivateKey)
         self.camera = VeriFaceCamera()
         self.pipeline = VeriFacePipeline()
     }
@@ -164,6 +169,12 @@ public final class VeriFaceClient {
 public struct VeriFaceConfig {
     public let tenantId: String
     public let apiKey: String
+    /// SECURITY FIX (S-01): The tenant's Ed25519 signing private key (hex, 64 chars).
+    /// This key is returned ONCE at tenant creation (POST /api/tenant → signingPrivateKey).
+    /// The SDK uses it to sign the session-verify JWT. The backend verifies against
+    /// the tenant's stored public key (tenant.signingPubKey).
+    /// Without this key, the SDK cannot produce a valid JWT signature.
+    public let signingPrivateKey: String
     public let apiBaseUrl: URL
     public let modelVersion: String
     public let captureDurationMs: Int
@@ -173,6 +184,7 @@ public struct VeriFaceConfig {
     public init(
         tenantId: String,
         apiKey: String,
+        signingPrivateKey: String,
         apiBaseUrl: URL,
         modelVersion: String = "v1.0.0",
         captureDurationMs: Int = 1800,
@@ -181,6 +193,7 @@ public struct VeriFaceConfig {
     ) {
         self.tenantId = tenantId
         self.apiKey = apiKey
+        self.signingPrivateKey = signingPrivateKey
         self.apiBaseUrl = apiBaseUrl
         self.modelVersion = modelVersion
         self.captureDurationMs = captureDurationMs

@@ -34,12 +34,21 @@ class VeriFaceController {
   VeriFaceController({required this.config})
       : _client = VeriFaceClient(config);
 
-  /// Initialize the controller: generate ephemeral keys, find camera.
+  /// Initialize the controller: load the tenant's signing key, generate
+  /// ephemeral ECDH key, find camera.
+  ///
+  /// SECURITY FIX (S-01): The Ed25519 signing key is loaded from
+  /// config.signingPrivateKey (the tenant's stored private key), NOT
+  /// generated ephemerally. The backend verifies JWTs against the tenant's
+  /// stored public key — an ephemeral key would cause every auth to fail.
+  /// Only the X25519 ECDH keypair is ephemeral (per-session).
   Future<void> initialize() async {
     if (_initialized) return;
 
-    // Generate ephemeral Ed25519 + X25519 keypairs for this session
-    _signingKeypair = await generateEd25519KeyPair();
+    // Load the tenant's Ed25519 signing keypair from the stored private key
+    _signingKeypair = await loadEd25519KeyPair(config.signingPrivateKey);
+
+    // Generate ephemeral X25519 keypair for ECDH (per-session)
     _sessionKeypair = await generateX25519KeyPair();
 
     // Find front-facing camera
@@ -185,6 +194,13 @@ class VeriFaceController {
   }
 
   /// Sign the JWT payload with Ed25519.
+  ///
+  /// SECURITY FIX (S-01): The JWT is signed with the tenant's signing private key
+  /// (loaded from config.signingPrivateKey during initialize()). The backend
+  /// verifies against the tenant's stored public key (tenant.signingPubKey).
+  /// Previously, this used an ephemeral key — which didn't match the stored key
+  /// and caused every auth request to fail with JWT_INVALID.
+  ///
   /// Format: base64url(header).base64url(payload).base64url(signature)
   Future<String> _signJwt({
     required String sessionId,
