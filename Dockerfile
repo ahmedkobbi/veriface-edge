@@ -36,6 +36,17 @@ COPY --from=deps /app/node_modules ./node_modules
 # Create data directory for SQLite (in production, use external DB)
 RUN mkdir -p /app/db && chown nextjs:nodejs /app/db
 
+# SECURITY FIX (Infra-03): Removed `RUN bunx prisma migrate deploy` from build time.
+# Previously, the migration ran during Docker BUILD — baking the DB schema into the
+# image. This is wrong for PostgreSQL (production DB is external and needs migration
+# at container STARTUP, not build time). The migration now runs via an entrypoint
+# script when the container starts, connecting to the production DB.
+COPY --from=builder /app/prisma ./prisma
+
+# Copy the entrypoint script
+COPY --chown=nextjs:nodejs docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
+
 USER nextjs
 
 ENV NODE_ENV=production
@@ -44,12 +55,10 @@ ENV HOSTNAME=0.0.0.0
 
 EXPOSE 3000
 
-# Copy database migration files and run migration
-COPY --from=builder /app/prisma ./prisma
-RUN bunx prisma migrate deploy || bunx prisma db push --accept-data-loss
-
 # Health check (using bun, not curl — curl not in slim image)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
   CMD bun -e "fetch('http://localhost:3000/api/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"
 
+# SECURITY FIX (Infra-03): Run migration at startup, then start the server.
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["bun", "server.js"]

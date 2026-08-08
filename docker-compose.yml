@@ -13,11 +13,12 @@ services:
     restart: unless-stopped
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=postgresql://veriface:${POSTGRES_PASSWORD}@postgres:5432/veriface?schema=public
+      - DATABASE_URL=postgresql://veriface:${POSTGRES_PASSWORD}@postgres:5432/veriface?schema=public&sslmode=require
       - VERIFACE_SERVER_SIGNING_KEY=${VERIFACE_SERVER_SIGNING_KEY}
       - VERIFACE_ENCRYPTION_KEY=${VERIFACE_ENCRYPTION_KEY}
       - VERIFACE_ALLOWED_ORIGINS=${VERIFACE_ALLOWED_ORIGINS}
       - VERIFACE_BOOTSTRAP_SECRET=${VERIFACE_BOOTSTRAP_SECRET}
+      - VERIFACE_TRUSTED_PROXIES=${VERIFACE_TRUSTED_PROXIES:-127.0.0.1,10.0.0.0/8,172.16.0.0/12}
       - CRON_SECRET=${CRON_SECRET}
       - WEBAUTHN_RP_ID=${WEBAUTHN_RP_ID:-veriface.io}
       - WEBAUTHN_RP_ORIGIN=${WEBAUTHN_RP_ORIGIN:-https://veriface.io}
@@ -31,7 +32,9 @@ services:
     networks:
       - veriface-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      # SECURITY FIX (Infra-04): Use bun instead of curl — the slim image
+      # doesn't have curl installed. Matches the Dockerfile HEALTHCHECK.
+      test: ["CMD", "bun", "-e", "fetch('http://localhost:3000/api/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3

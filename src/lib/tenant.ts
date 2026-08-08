@@ -20,6 +20,7 @@ import {
   createCommitment,
   type Ed25519KeyPair,
 } from '@/lib/crypto-server'
+import { logger } from '@/lib/logger'
 
 // ---------------------------------------------------------------------------
 // Tenant management

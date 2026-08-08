@@ -17,7 +17,6 @@
  */
 
 import {
-  ed25519Generate,
   x25519Generate,
   x25519SharedSecret,
   hkdfSha256,
@@ -27,7 +26,6 @@ import {
   secureRandom,
   hex,
   utf8,
-  type Ed25519KeyPair,
   type X25519KeyPair,
 } from './crypto'
 import {
@@ -93,6 +91,33 @@ export class VeriFaceError extends Error {
 export interface VeriFaceConfig {
   tenantId: string
   apiKey: string  // Required: vf_live_... or vf_test_...
+  /**
+   * SECURITY FIX (S-01): The tenant's Ed25519 signing PRIVATE key (hex, 64 chars).
+   *
+   * This key is returned ONCE at tenant creation (POST /api/tenant → signingPrivateKey).
+   * The SDK MUST use it to sign the session-verify JWT. The backend verifies
+   * the JWT against the tenant's STORED public key (tenant.signingPubKey) —
+   * NOT against a key extracted from the JWT payload.
+   *
+   * Previously, the SDK generated an EPHEMERAL Ed25519 keypair per session and
+   * signed the JWT with it, including the public key in the `proof.sdk_pubkey`
+   * field. The old (vulnerable) backend extracted that key and verified against
+   * it — allowing an attacker to sign with their own key (C-1 vulnerability).
+   *
+   * The C-1 fix changed the backend to verify against the tenant's stored key,
+   * but the SDK was never updated — resulting in every auth request failing
+   * with JWT_INVALID because the ephemeral key doesn't match the stored key.
+   *
+   * This field is now REQUIRED. Without it, the SDK cannot sign a valid JWT.
+   *
+   * SECURITY: In a browser context, this private key is accessible to any
+   * JavaScript running on the same origin (XSS risk). Mitigations:
+   *   - Use a strict CSP (no unsafe-inline) to prevent XSS
+   *   - Load the key from a server-rendered, nonce-protected script tag
+   *   - For high-security deployments, use a Web Worker with no DOM access
+   *   - Rotate the key if XSS is suspected (POST /api/tenant/rotate-signing-key)
+   */
+  signingPrivateKey: string  // hex, 64 chars — REQUIRED
   apiBaseUrl?: string  // defaults to relative path
   modelVersion?: string
   captureDurationMs?: number  // default 1800ms (rPPG needs ~1.5s)
@@ -158,8 +183,9 @@ export class VeriFace {
   private rafId: number | null = null
   private captureAbortController: AbortController | null = null
 
-  // Ephemeral session keys (rotated per session)
-  private ed25519Keypair: Ed25519KeyPair | null = null
+  // Ephemeral X25519 keypair for ECDH (rotated per session)
+  // SECURITY FIX (S-01): Ed25519 keypair removed — JWT is now signed with
+  // the tenant's signingPrivateKey, not an ephemeral key.
   private x25519Keypair: X25519KeyPair | null = null
 
   // Anti-injection components
@@ -174,9 +200,24 @@ export class VeriFace {
   private bestFaceConfidence = 0
 
   constructor(config: VeriFaceConfig) {
+    // SECURITY FIX (S-01): Validate signingPrivateKey is present and well-formed.
+    if (!config.signingPrivateKey) {
+      throw new VeriFaceError(
+        'UNKNOWN',
+        'signingPrivateKey is required. This is the tenant Ed25519 private key returned at tenant creation.',
+      )
+    }
+    if (!/^[0-9a-f]{64}$/i.test(config.signingPrivateKey)) {
+      throw new VeriFaceError(
+        'UNKNOWN',
+        'signingPrivateKey must be 64 hex chars (32 bytes). Got: ' + config.signingPrivateKey.length + ' chars.',
+      )
+    }
+
     this.config = {
       tenantId: config.tenantId,
       apiKey: config.apiKey,
+      signingPrivateKey: config.signingPrivateKey,
       apiBaseUrl: config.apiBaseUrl ?? '',
       modelVersion: config.modelVersion ?? 'v1.0.0',
       captureDurationMs: config.captureDurationMs ?? 1800,
@@ -256,8 +297,9 @@ export class VeriFace {
     // Preload neural model in background (non-blocking)
     preloadNeuralModel().catch(() => {})
 
-    // Generate ephemeral session keys
-    this.ed25519Keypair = ed25519Generate()
+    // SECURITY FIX (S-01): Only generate ephemeral X25519 keypair for ECDH.
+    // The JWT is now signed with the tenant's signingPrivateKey (not an ephemeral key).
+    // The ephemeral Ed25519 keypair is no longer needed.
     this.x25519Keypair = x25519Generate()
 
     const response = await fetch(`${this.config.apiBaseUrl}/api/session/init`, {
@@ -643,7 +685,9 @@ export class VeriFace {
     commitmentNonce: Uint8Array,
     externalUserId?: string,
   ): Promise<VeriFaceResult> {
-    if (!this.ed25519Keypair || !this.x25519Keypair) {
+    // SECURITY FIX (S-01): Only X25519 keypair is needed (for ECDH).
+    // JWT signing uses the tenant's signingPrivateKey, not an ephemeral key.
+    if (!this.x25519Keypair) {
       throw new VeriFaceError('UNKNOWN', 'Session not initialized')
     }
 
@@ -699,17 +743,15 @@ export class VeriFace {
       },
       model_version: this.config.modelVersion,
       sdk_version: '1.0.0',
-      // ZK "proof" — in production this would be a Groth16 proof.
-      // Here: the Ed25519 signature on the JWT itself serves as the
-      // proof of honest SDK origin (the backend has the SDK's public key).
-      proof: {
-        type: 'ed25519-attestation',
-        sdk_pubkey: hex.encode(this.ed25519Keypair.publicKey),
-        nonce: hex.encode(commitmentNonce),
-      },
+      // SECURITY FIX (S-01): Removed `proof.sdk_pubkey` — the backend no longer
+      // trusts a key from the JWT payload (C-1 fix). The JWT is now signed with
+      // the tenant's signingPrivateKey, and the backend verifies against the
+      // tenant's stored signingPubKey. No ephemeral key is needed.
     }
 
-    const jwt = signJwt(claims, this.ed25519Keypair.privateKey)
+    // SECURITY FIX (S-01): Sign with the tenant's signing private key.
+    // Previously: signed with ephemeral ed25519Keypair.privateKey (wrong key).
+    const jwt = signJwt(claims, hex.decode(this.config.signingPrivateKey))
 
     // Encrypt the embedding with the session key (defense in depth —
     // even though the commitment is the only thing the backend needs,

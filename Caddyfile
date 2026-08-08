@@ -35,111 +35,115 @@
 #   5. Renew certificates before expiry
 
 :81 {
-	# Enable HTTP/3 (Caddy does this automatically with TLS, but we set
-	# the alt-svc header explicitly for non-TLS local dev)
-	header {
-		# HTTP/3 advertisement
-		Alt-Svc "h3=\":443\"; ma=86400"
+        # Enable HTTP/3 (Caddy does this automatically with TLS, but we set
+        # the alt-svc header explicitly for non-TLS local dev)
+        header {
+                # HTTP/3 advertisement
+                Alt-Svc "h3=\":443\"; ma=86400"
 
-		# Security headers
-		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
-		X-Content-Type-Options "nosniff"
-		X-Frame-Options "DENY"
-		Referrer-Policy "strict-origin-when-cross-origin"
-		Permissions-Policy "camera=(self), microphone=(), geolocation=(), payment=()"
-		X-DNS-Prefetch-Control "off"
-		X-Permitted-Cross-Domain-Policies "none"
-		X-Download-Options "noopen"
-		Cross-Origin-Opener-Policy "same-origin"
-		Cross-Origin-Embedder-Policy "require-corp"
-		Cross-Origin-Resource-Policy "same-origin"
+                # Security headers
+                Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+                X-Content-Type-Options "nosniff"
+                X-Frame-Options "DENY"
+                Referrer-Policy "strict-origin-when-cross-origin"
+                Permissions-Policy "camera=(self), microphone=(), geolocation=(), payment=()"
+                X-DNS-Prefetch-Control "off"
+                X-Permitted-Cross-Domain-Policies "none"
+                X-Download-Options "noopen"
+                Cross-Origin-Opener-Policy "same-origin"
+                Cross-Origin-Embedder-Policy "require-corp"
+                Cross-Origin-Resource-Policy "same-origin"
 
-		# Content Security Policy with Trusted Types
-		Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' https: wss:; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types default"
+                # Content Security Policy with Trusted Types
+                # SECURITY FIX (Infra-01): Removed 'unsafe-inline' and 'unsafe-eval' from
+                # script-src — these contradicted require-trusted-types-for 'script' and
+                # enabled XSS. Now matches the strict CSP in middleware.ts (M-7 fix).
+                # Also removed 'unsafe-inline' from style-src in production (kept in dev).
+                Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' https: wss:; img-src 'self' data: blob: https:; style-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; frame-src 'none'; require-trusted-types-for 'script'; trusted-types default veriface-policy"
 
-		# Hide server identity
-		-Server
+                # Hide server identity
+                -Server
 
-		# Cache control for API responses (default: no cache)
-		Cache-Control "no-store, no-cache, must-revalidate"
+                # Cache control for API responses (default: no cache)
+                Cache-Control "no-store, no-cache, must-revalidate"
 
-		# Remove X-Powered-By header
-		-X-Powered-By
-	}
+                # Remove X-Powered-By header
+                -X-Powered-By
+        }
 
-	# Compression (Brotli preferred, Gzip fallback)
-	encode {
-		gzip
-		zstd
-	}
+        # Compression (Brotli preferred, Gzip fallback)
+        encode {
+                gzip
+                zstd
+        }
 
-	# Rate limiting — per-IP, per-route
-	# (Requires Caddy's rate_limit plugin in production;
-	# for local dev, the app handles rate limiting internally)
+        # Rate limiting — per-IP, per-route
+        # (Requires Caddy's rate_limit plugin in production;
+        # for local dev, the app handles rate limiting internally)
 
-	# Request body size limit (10MB max — embeddings are ~4KB)
-	request_body {
-		max_size 10MB
-	}
+        # Request body size limit (10MB max — embeddings are ~4KB)
+        request_body {
+                max_size 10MB
+        }
 
-	# WebSocket support for Socket.io
-	@websockets {
-		header Connection *Upgrade*
-		header Upgrade websocket
-	}
-	reverse_proxy @websockets localhost:3001 {
-		header_up Host {host}
-		header_up X-Forwarded-For {remote_host}
-		header_up X-Forwarded-Proto {scheme}
-		header_up X-Real-IP {remote_host}
-	}
+        # WebSocket support for Socket.io
+        @websockets {
+                header Connection *Upgrade*
+                header Upgrade websocket
+        }
+        reverse_proxy @websockets localhost:3001 {
+                header_up Host {host}
+                header_up X-Forwarded-For {remote_host}
+                header_up X-Forwarded-Proto {scheme}
+                header_up X-Real-IP {remote_host}
+        }
 
-	# API routes with XTransformPort support (for mini-services)
-	@transform_port_query {
-		query XTransformPort=*
-	}
-	handle @transform_port_query {
-		reverse_proxy localhost:{query.XTransformPort} {
-			header_up Host {host}
-			header_up X-Forwarded-For {remote_host}
-			header_up X-Forwarded-Proto {scheme}
-			header_up X-Real-IP {remote_host}
-			header_up X-Request-ID {http.request.header.X-Request-ID}
-		}
-	}
+        # API routes with XTransformPort support (for mini-services)
+        @transform_port_query {
+                query XTransformPort=*
+        }
+        handle @transform_port_query {
+                reverse_proxy localhost:{query.XTransformPort} {
+                        header_up Host {host}
+                        header_up X-Forwarded-For {remote_host}
+                        header_up X-Forwarded-Proto {scheme}
+                        header_up X-Real-IP {remote_host}
+                        header_up X-Request-ID {http.request.header.X-Request-ID}
+                }
+        }
 
-	# Main app (Next.js)
-	handle {
-		reverse_proxy localhost:3000 {
-			header_up Host {host}
-			header_up X-Forwarded-For {remote_host}
-			header_up X-Forwarded-Proto {scheme}
-			header_up X-Real-IP {remote_host}
-			header_up X-Request-ID {http.request.header.X-Request-ID}
+        # Main app (Next.js)
+        handle {
+                reverse_proxy localhost:3000 {
+                        header_up Host {host}
+                        header_up X-Forwarded-For {remote_host}
+                        header_up X-Forwarded-Proto {scheme}
+                        header_up X-Real-IP {remote_host}
+                        header_up X-Request-ID {http.request.header.X-Request-ID}
 
-			# Health check
-			health_uri /api/health
-			health_interval 10s
-			health_timeout 5s
-			health_status 2xx
-		}
-	}
+                        # Health check
+                        health_uri /api/health
+                        health_interval 10s
+                        health_timeout 5s
+                        health_status 2xx
+                }
+        }
 
-	# Access log (structured JSON)
-	log {
-		output file /var/log/caddy/veriface-access.log {
-			roll_size 100MB
-			roll_keep 10
-			roll_keep_for 720h
-		}
-		format json
-	}
+        # Access log (structured JSON)
+        log {
+                output file /var/log/caddy/veriface-access.log {
+                        roll_size 100MB
+                        roll_keep 10
+                        roll_keep_for 720h
+                }
+                format json
+        }
 
-	# Error log
-	log {
-		output file /var/log/caddy/veriface-error.log
-		level ERROR
-	}
+        # Error log
+        log {
+                output file /var/log/caddy/veriface-error.log
+                level ERROR
+        }
 }
 
 # ---------------------------------------------------------------------------
@@ -147,17 +151,17 @@
 # ---------------------------------------------------------------------------
 
 # veriface.io, api.veriface.io {
-# 	# TLS 1.3 only
-# 	tls {
-# 		protocols tls1.3
-# 		curve_preferences x25519 secp384r1 secp256r1
-# 		# OCSP stapling (Caddy does this automatically)
-# 		# HSTS preload
-# 	}
+#       # TLS 1.3 only
+#       tls {
+#               protocols tls1.3
+#               curve_preferences x25519 secp384r1 secp256r1
+#               # OCSP stapling (Caddy does this automatically)
+#               # HSTS preload
+#       }
 #
-# 	# HTTP/3 is automatic with TLS in Caddy
-# 	# Clients discover it via the Alt-Svc header
+#       # HTTP/3 is automatic with TLS in Caddy
+#       # Clients discover it via the Alt-Svc header
 #
-# 	# Same config as above...
-# 	import veriface_common
+#       # Same config as above...
+#       import veriface_common
 # }
