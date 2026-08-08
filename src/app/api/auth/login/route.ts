@@ -122,19 +122,36 @@ export async function POST(req: NextRequest) {
     // Clear failed login counter on success
     clearFailedLogins(email.toLowerCase(), clientIp)
 
-    // Check if 2FA is enabled
+    // Check if 2FA is enabled (TOTP or WebAuthn)
     if (user.twoFactorEnabled) {
-      // Don't issue session cookie yet — require TOTP code
+      // Check if the user has WebAuthn credentials (hardware key / passkey)
+      const webauthnCreds = await db.webAuthnCredential.findMany({
+        where: { userId: user.id },
+        select: { id: true, deviceType: true, aaguid: true },
+      })
+
+      // Don't issue session cookie yet — require 2FA
       const { createTwoFactorPendingToken } = await import('@/lib/totp')
       const pendingToken = await createTwoFactorPendingToken(user.id, user.email)
 
-      logger.info({ userId: user.id, email: user.email }, '2FA challenge required')
+      logger.info(
+        { userId: user.id, email: user.email, hasWebAuthn: webauthnCreds.length > 0 },
+        '2FA challenge required',
+      )
 
       return NextResponse.json({
         success: false,
         requiresTwoFactor: true,
         pendingToken,
-        message: 'Enter the 6-digit code from your authenticator app.',
+        // Tell the client which 2FA methods are available
+        twoFactorMethods: {
+          totp: user.twoFactorEnabled,
+          webauthn: webauthnCreds.length > 0,
+        },
+        webauthnCredentialCount: webauthnCreds.length,
+        message: webauthnCreds.length > 0
+          ? 'Use your hardware key / passkey, or enter the 6-digit code from your authenticator app.'
+          : 'Enter the 6-digit code from your authenticator app.',
       })
     }
 

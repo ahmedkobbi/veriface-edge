@@ -851,3 +851,46 @@ model BackupRecord {
   @@index([createdAt])
   @@index([status])
 }
+
+/// Attribute credential — a signed claim about a user (e.g., "over 18", "employee").
+/// The credential is stored as a Poseidon commitment (not plaintext).
+/// ZK proofs can be generated against this commitment to prove the attribute
+/// without revealing the underlying value.
+model AttributeCredential {
+  id              String   @id @default(cuid())
+  tenantId        String
+  /// User this credential belongs to (external user ID).
+  externalUserId  String
+  /// Attribute type: 'age' | 'employment' | 'rate_limit' | 'custom'.
+  attributeType   String
+  /// Poseidon commitment to the attribute value + salt.
+  /// For age: Poseidon(birth_year, salt)
+  /// For employment: Poseidon(employee_id, salt) — or Merkle leaf
+  /// For rate_limit: Poseidon(auth_count, salt, month_key)
+  commitment      String
+  /// Salt used in the commitment (hex). Needed to generate ZK proofs.
+  /// Stored encrypted with the tenant DEK (never plaintext at rest).
+  salt            String
+  /// The actual attribute value (encrypted, for audit/verification).
+  /// For age: birth_year (e.g., 1990)
+  /// For employment: employee_id
+  /// For rate_limit: auth_count
+  /// Encrypted with tenant DEK (AES-256-GCM).
+  encryptedValue  String
+  /// IV for the encrypted value (hex).
+  iv              String
+  /// Auth tag for the encrypted value (hex).
+  authTag         String
+  /// Whether this credential is active (can be used for proofs).
+  active          Boolean  @default(true)
+  /// When the credential expires (null = never).
+  expiresAt       DateTime?
+  /// Who issued the credential (admin user ID).
+  issuedBy        String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([tenantId, externalUserId])
+  @@index([tenantId, attributeType])
+  @@index([active])
+}

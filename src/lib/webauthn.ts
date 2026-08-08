@@ -243,3 +243,102 @@ export async function finishWebAuthnAuthentication(
     credentialId: credential.id,
   }
 }
+
+// ---------------------------------------------------------------------------
+// Platform User WebAuthn (for 2FA login)
+// ---------------------------------------------------------------------------
+
+/**
+ * Generate WebAuthn authentication options for a platform user (2FA login).
+ * Unlike the biometric flow (which uses tenantId + externalUserId),
+ * this uses the platform user's ID directly.
+ *
+ * Returns the challenge options. The challenge MUST be passed back to
+ * `verifyPlatformUserWebAuthnAssertion()` for verification.
+ */
+export async function beginPlatformUserWebAuthnAuth(
+  userId: string,
+): Promise<{ options: any; error?: string }> {
+  const credentials = await db.webAuthnCredential.findMany({
+    where: { userId },
+  })
+
+  if (credentials.length === 0) {
+    return { options: null, error: 'NO_CREDENTIALS' }
+  }
+
+  const options = await generateAuthenticationOptions({
+    rpID: RP_ID,
+    userVerification: 'required',
+    allowCredentials: credentials.map((c) => ({
+      id: c.credentialId,
+      type: 'public-key' as const,
+      transports: JSON.parse(c.transports) ?? [],
+    })),
+  })
+
+  return { options }
+}
+
+/**
+ * Verify a WebAuthn assertion for a platform user (2FA login).
+ *
+ * @param assertion - The WebAuthn assertion response from navigator.credentials.get()
+ * @param expectedChallenge - The challenge from beginPlatformUserWebAuthnAuth()
+ * @param userId - The platform user ID
+ * @returns { verified, credentialId, counter, reason }
+ */
+export async function verifyPlatformUserWebAuthnAssertion(
+  assertion: any,
+  expectedChallenge: string,
+  userId: string,
+): Promise<{
+  verified: boolean
+  credentialId?: string
+  counter?: number
+  reason?: string
+}> {
+  const credentialId = assertion?.id
+  if (!credentialId) {
+    return { verified: false, reason: 'NO_CREDENTIAL_ID' }
+  }
+
+  const credential = await db.webAuthnCredential.findUnique({
+    where: { credentialId },
+  })
+
+  if (!credential || credential.userId !== userId) {
+    return { verified: false, reason: 'CREDENTIAL_NOT_FOUND' }
+  }
+
+  let verification: VerifiedAuthenticationResponse
+  try {
+    verification = await verifyAuthenticationResponse({
+      response: assertion,
+      expectedChallenge,
+      expectedOrigin: RP_ORIGIN,
+      expectedRPID: RP_ID,
+      credential: {
+        id: credential.credentialId,
+        publicKey: new Uint8Array(hex.decode(credential.publicKey)),
+        counter: credential.counter,
+      },
+      requireUserVerification: true,
+    })
+  } catch (e) {
+    return {
+      verified: false,
+      reason: e instanceof Error ? e.message : 'Verification failed',
+    }
+  }
+
+  if (!verification.verified) {
+    return { verified: false, reason: 'Verification failed' }
+  }
+
+  return {
+    verified: true,
+    credentialId: credential.id,
+    counter: verification.authenticationInfo.newCounter,
+  }
+}
