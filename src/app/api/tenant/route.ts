@@ -2,14 +2,10 @@
  * POST /api/tenant
  * Create a new enterprise tenant + initial API key.
  *
- * SECURITY: The Ed25519 signing private key is NEVER returned to the client.
- * It is stored server-side only (in the database as signingPubKey — the public
- * key — while the private key is held in the server's secrets manager).
- *
- * The SDK signs JWTs using a per-session ephemeral keypair that the backend
- * does NOT verify against tenant.signingPubKey. Instead, the backend verifies
- * the JWT signature against the SDK's ephemeral public key (included in the
- * JWT header), and trusts the SDK based on the ECDH-derived session key.
+ * SECURITY FIX (S-02): The Ed25519 signing private key is encrypted at rest
+ * and stored server-side (signingPrivateKeyEncrypted). It is NEVER returned
+ * to the client. The SDK uses the /api/session/sign endpoint to have the
+ * server sign JWTs — the private key never leaves the server.
  *
  * Returns:
  *   - tenant metadata (public fields only)
@@ -63,9 +59,9 @@ export async function POST(req: NextRequest) {
       environment: 'live',
     })
 
-    // SECURITY: Do NOT return signingPrivateKey to the client.
-    // The signing private key is stored ONLY in the server's secrets manager.
-    // The client SDK uses ephemeral per-session keypairs, not the tenant signing key.
+    // SECURITY FIX (S-02): The signing private key is stored encrypted in the DB.
+    // It is NEVER returned to the client. The SDK uses /api/session/sign to
+    // have the server sign JWTs — the private key never leaves the server.
     return NextResponse.json({
       success: true,
       tenant: {
@@ -76,7 +72,7 @@ export async function POST(req: NextRequest) {
       },
       apiKey: apiKey.plaintext,
       apiKeyId: apiKey.id,
-      warning: 'Store the API key in your secrets manager. It will NOT be returned again. The signing private key is held server-side only.',
+      warning: 'Store the API key securely. It will NOT be returned again. The signing private key is stored server-side and used via /api/session/sign.',
     })
   } catch (e) {
     return NextResponse.json(safeErrorResponse(e), { status: 500 })
