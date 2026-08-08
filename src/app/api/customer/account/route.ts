@@ -72,7 +72,8 @@ export async function PUT(req: NextRequest) {
 
     await appendAudit({
       tenantId: session.tenantId,
-      eventType: 'key.rotated',
+      // SECURITY FIX (L-4): Was 'key.rotated' — this is a password change event.
+      eventType: 'user.password_changed',
       payload: { action: 'password_changed', userId: session.user.id },
     })
 
@@ -115,7 +116,8 @@ export async function DELETE(req: NextRequest) {
 
   await appendAudit({
     tenantId: session.tenantId,
-    eventType: 'key.rotated',
+    // SECURITY FIX (L-4): Was 'key.rotated' — this is an account deletion event.
+    eventType: 'user.account_deleted',
     payload: { action: 'account_deleted', userId: session.user.id },
   })
 

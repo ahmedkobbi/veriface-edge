@@ -281,8 +281,20 @@ export async function processWebhookQueue(maxToProcess: number = 10): Promise<{
       })
       deadLettered++
     } else {
+      // SECURITY FIX (L-5): Off-by-one in the backoff index.
+      // `attempt` starts at 1 (it's `wh.attempts + 1` after the first failure).
+      // The backoff schedule is indexed from 0, so:
+      //   - 1st failure (attempt=1) → should use BACKOFF_SCHEDULE[0] (1s delay)
+      //   - 2nd failure (attempt=2) → should use BACKOFF_SCHEDULE[1] (5s delay)
+      //   - ...
+      // Previously: `BACKOFF_SCHEDULE[attempt]` used index 1 for the 1st failure
+      // (skipping the 1s delay entirely) and index 7 for the 8th failure (out of
+      // bounds → fell through to the last element, 24h, which is wrong).
+      //
+      // Fix: use `attempt - 1` as the index, and clamp to the last valid index.
+      const backoffIndex = Math.min(attempt - 1, BACKOFF_SCHEDULE.length - 1)
+      const baseDelay = BACKOFF_SCHEDULE[backoffIndex]
       // Exponential backoff with jitter (±20%)
-      const baseDelay = BACKOFF_SCHEDULE[attempt] ?? BACKOFF_SCHEDULE[BACKOFF_SCHEDULE.length - 1]
       const jitter = baseDelay * 0.2 * (Math.random() * 2 - 1)
       const delay = Math.max(1000, baseDelay + jitter)
       await db.webhookDelivery.update({

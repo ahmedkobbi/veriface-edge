@@ -416,6 +416,8 @@ export async function requireApiKey(
   // Falls back to in-memory if Redis is not configured (single-instance dev).
   const perMinLimit = await getEffectivePerMinuteLimit(auth.tenantId!, tenant.rateLimitPerMin)
   const rl = await checkCachedRateLimit(auth.tenantId!, ip, perMinLimit)
+  // Derive `remaining` from `count` (checkCachedRateLimit returns { allowed, count, resetAt })
+  const rlRemaining = Math.max(0, perMinLimit - rl.count)
 
   // --- Monthly quota check (only for billable endpoints) ---
   let monthlyUsage: MonthlyUsageResult | null = null
@@ -430,7 +432,7 @@ export async function requireApiKey(
 
       const headers = buildRateLimitHeaders({
         perMinuteLimit: perMinLimit,
-        perMinuteRemaining: rl.remaining,
+        perMinuteRemaining: rlRemaining,
         perMinuteResetAt: rl.resetAt,
         plan,
         monthlyRemaining: 0,
@@ -483,7 +485,7 @@ export async function requireApiKey(
 
   const rateLimitHeaders: Record<string, string> = buildRateLimitHeaders({
     perMinuteLimit: perMinLimit,
-    perMinuteRemaining: rl.remaining,
+    perMinuteRemaining: rlRemaining,
     perMinuteResetAt: rl.resetAt,
     plan,
     monthlyRemaining: monthlyUsage?.remaining ?? plan.monthlyLimit,

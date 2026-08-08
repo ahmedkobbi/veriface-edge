@@ -142,7 +142,9 @@ export async function POST(req: NextRequest) {
 
   await appendAudit({
     tenantId: session.tenantId,
-    eventType: 'api_key.created', // Closest semantic match — "new principal created"
+    // SECURITY FIX (L-4): Was 'api_key.created' (closest semantic match before).
+    // Now uses the dedicated 'user.team_member_invited' event type.
+    eventType: 'user.team_member_invited',
     payload: {
       action: 'team_member_invited',
       invitedEmail: email,

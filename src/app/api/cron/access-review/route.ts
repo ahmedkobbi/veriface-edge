@@ -157,7 +157,8 @@ export async function POST(req: NextRequest) {
   if (firstTenant) {
     await appendAudit({
       tenantId: firstTenant.id,
-      eventType: 'key.rotated',
+      // SECURITY FIX (L-4): Was 'key.rotated' — this is a compliance access review.
+      eventType: 'compliance.access_review_completed',
       payload: {
         action: 'quarterly_access_review',
         ...report,
@@ -197,7 +198,7 @@ export async function GET(req: NextRequest) {
   const lastReview = await db.auditLog.findFirst({
     where: {
       tenantId: session.tenantId,
-      eventType: 'key.rotated',
+      eventType: 'compliance.access_review_completed',
     },
     orderBy: { createdAt: 'desc' },
     take: 1,
@@ -207,7 +208,7 @@ export async function GET(req: NextRequest) {
   const reviewEntries = await db.auditLog.findMany({
     where: {
       tenantId: session.tenantId,
-      eventType: 'key.rotated',
+      eventType: 'compliance.access_review_completed',
       payload: { contains: 'quarterly_access_review' },
     },
     orderBy: { createdAt: 'desc' },

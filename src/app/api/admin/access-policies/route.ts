@@ -101,7 +101,8 @@ export async function PUT(req: NextRequest) {
 
   await appendAudit({
     tenantId: session.tenantId,
-    eventType: 'key.rotated',
+    // SECURITY FIX (L-4): Was 'key.rotated' — this is an access policy update.
+    eventType: 'user.access_policy_updated',
     payload: { action: 'access_policy_updated', fields: Object.keys(validation.data) },
   })
 

@@ -317,8 +317,38 @@ export async function getCachedZkVKey(
  * Check + increment rate limit using Redis (atomic operation).
  * Falls back to in-memory if Redis is not available.
  *
- * Uses Redis INCR with EXPIRE for atomic sliding window.
+ * SECURITY FIX (L-10): Previously used separate INCR + EXPIRE calls.
+ * If the process crashed between INCR (count=1) and EXPIRE, the key
+ * would have no TTL and persist forever — inflating the count across
+ * windows and eventually locking out legitimate users.
+ *
+ * Now uses a Lua script that atomically:
+ *   1. INCRs the counter
+ *   2. If count == 1, sets the TTL (only on first request in window)
+ *   3. Returns the count + TTL
+ * Redis executes Lua scripts atomically — no other command can interleave.
  */
+const RATE_LIMIT_LUA_SCRIPT = `
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then
+  redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
+end
+return count
+`
+
+let rateLimitLuaSha: string | null = null
+
+async function getRateLimitLuaSha(redis: RedisClientType): Promise<string> {
+  if (rateLimitLuaSha) return rateLimitLuaSha
+  try {
+    rateLimitLuaSha = await redis.scriptLoad(RATE_LIMIT_LUA_SCRIPT)
+  } catch {
+    // scriptLoad not supported — fall back to EVAL each time
+    rateLimitLuaSha = ''
+  }
+  return rateLimitLuaSha
+}
+
 export async function checkCachedRateLimit(
   tenantId: string,
   ip: string,
@@ -332,11 +362,15 @@ export async function checkCachedRateLimit(
   const redis = await getRedis()
   if (redis) {
     try {
-      // Atomic INCR + EXPIRE
-      const count = await redis.incr(bucketKey)
-      if (count === 1) {
-        // First request in window — set TTL
-        await redis.expire(bucketKey, 60)
+      // SECURITY FIX (L-10): Atomic INCR + EXPIRE via Lua script.
+      let count: number
+      const sha = await getRateLimitLuaSha(redis)
+      if (sha) {
+        // Use EVALSHA (cached) — faster than EVAL
+        count = (await redis.evalSha(sha, { keys: [bucketKey], arguments: ['60'] })) as number
+      } else {
+        // Fallback to EVAL (inline script)
+        count = (await redis.eval(RATE_LIMIT_LUA_SCRIPT, { keys: [bucketKey], arguments: ['60'] })) as number
       }
 
       if (count > limit) {

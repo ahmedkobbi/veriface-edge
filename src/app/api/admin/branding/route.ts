@@ -72,7 +72,8 @@ export async function PUT(req: NextRequest) {
 
   await appendAudit({
     tenantId: session.tenantId,
-    eventType: 'key.rotated',
+    // SECURITY FIX (L-4): Was 'key.rotated' — this is a branding update.
+    eventType: 'user.branding_updated',
     payload: { action: 'branding_updated', fields: Object.keys(validation.data) },
   })
 

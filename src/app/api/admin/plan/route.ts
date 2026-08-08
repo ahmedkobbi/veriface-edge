@@ -123,7 +123,8 @@ export async function PUT(req: NextRequest) {
 
   await appendAudit({
     tenantId: session.tenantId,
-    eventType: 'key.rotated',
+    // SECURITY FIX (L-4): Was 'key.rotated' — this is a plan settings update.
+    eventType: 'tenant.plan_changed',
     payload: {
       action: 'plan_settings_updated',
       spendingLimitUsd,

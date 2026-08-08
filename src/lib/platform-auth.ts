@@ -19,8 +19,30 @@ import { sha256Hex } from '@/lib/crypto-server'
 import { logger } from '@/lib/logger'
 
 const BCRYPT_ROUNDS = 10
-const COOKIE_NAME = 'veriface_session'
+// SECURITY FIX (L-3): Use __Host- prefix for the cookie name.
+// The __Host- prefix enforces:
+//   - Secure (must be HTTPS)
+//   - Path=/
+//   - No Domain attribute
+// This prevents cookie injection via insecure subdomains.
+// NOTE: In dev (HTTP), __Host- cookies are rejected by the browser.
+// We conditionally apply the prefix only in production.
+const COOKIE_BASE_NAME = 'veriface_session'
 const COOKIE_MAX_AGE = 7 * 24 * 60 * 60 // 7 days in seconds
+
+// SECURITY FIX (L-2): JWT issuer + audience claims.
+// The issuer identifies who created the token; the audience identifies
+// who the token is intended for. Verifying both on the server prevents
+// token confusion attacks (e.g., a token issued for a different service
+// being accepted by this one).
+const JWT_ISSUER = 'veriface-edge-platform'
+const JWT_AUDIENCE = 'veriface-edge-api'
+
+function getCookieName(): string {
+  // __Host- prefix requires Secure, Path=/, no Domain — only valid over HTTPS.
+  // In dev (HTTP), use the unprefixed name so cookies still work.
+  return process.env.NODE_ENV === 'production' ? `__Host-${COOKIE_BASE_NAME}` : COOKIE_BASE_NAME
+}
 
 export interface PlatformUserPublic {
   id: string
@@ -70,8 +92,11 @@ export function isValidPassword(password: string): boolean {
 export async function createSessionToken(userId: string, email: string, tenantId: string | null): Promise<string> {
   const now = Math.floor(Date.now() / 1000)
   const serverKey = getServerSigningKey()
+  // SECURITY FIX (L-2): Include iss + aud claims so the verifier can reject
+  // tokens minted for a different issuer or audience (token confusion defense).
   return signJwt({
-    iss: 'veriface-edge-platform',
+    iss: JWT_ISSUER,
+    aud: JWT_AUDIENCE,
     sub: userId,
     iat: now,
     exp: now + COOKIE_MAX_AGE,
@@ -83,12 +108,21 @@ export async function createSessionToken(userId: string, email: string, tenantId
 }
 
 export function buildCookieHeader(token: string): string {
+  // SECURITY FIX (L-1): SameSite=Strict (was Lax).
+  // Strict prevents the cookie from being sent on cross-site navigations
+  // (e.g., when a user clicks a link from another site to the dashboard).
+  // This defeats CSRF-style attacks where an attacker tricks the browser
+  // into making an authenticated request.
+  //
+  // SECURITY FIX (L-3): __Host- prefix (production only).
+  // The prefix enforces Secure + Path=/ + no Domain, preventing subdomain
+  // cookie injection.
   const parts = [
-    `${COOKIE_NAME}=${token}`,
+    `${getCookieName()}=${token}`,
     'Path=/',
     `Max-Age=${COOKIE_MAX_AGE}`,
     'HttpOnly',
-    'SameSite=Lax',
+    'SameSite=Strict',
   ]
   if (process.env.NODE_ENV === 'production') {
     parts.push('Secure')
@@ -97,7 +131,7 @@ export function buildCookieHeader(token: string): string {
 }
 
 export function buildClearCookieHeader(): string {
-  return `${COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`
+  return `${getCookieName()}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`
 }
 
 export async function verifySessionToken(token: string): Promise<{
@@ -133,6 +167,23 @@ export async function verifySessionToken(token: string): Promise<{
   if (claims.exp && claims.exp < now) return null
   if (claims.type !== 'platform_session') return null
 
+  // SECURITY FIX (L-2): Validate issuer + audience claims.
+  // Reject tokens that were not issued by us, or that were minted for a
+  // different audience (e.g., a token from a different VeriFace deployment).
+  if (claims.iss !== JWT_ISSUER) {
+    logger.warn({ expectedIss: JWT_ISSUER, actualIss: claims.iss }, 'JWT issuer mismatch — rejecting token')
+    return null
+  }
+  // aud can be a string or an array of strings; we accept if JWT_AUDIENCE is in it.
+  const aud = claims.aud
+  const audMatches = Array.isArray(aud)
+    ? aud.includes(JWT_AUDIENCE)
+    : aud === JWT_AUDIENCE
+  if (!audMatches) {
+    logger.warn({ expectedAud: JWT_AUDIENCE, actualAud: aud }, 'JWT audience mismatch — rejecting token')
+    return null
+  }
+
   return {
     valid: true,
     userId: claims.sub,
@@ -144,9 +195,10 @@ export async function verifySessionToken(token: string): Promise<{
 export function getCookieFromRequest(req: Request): string | null {
   const cookieHeader = req.headers.get('cookie') ?? ''
   const cookies = cookieHeader.split(';').map((c) => c.trim())
+  const cookieName = getCookieName()
   for (const cookie of cookies) {
     const [name, ...valueParts] = cookie.split('=')
-    if (name === COOKIE_NAME) {
+    if (name === cookieName) {
       return valueParts.join('=')
     }
   }

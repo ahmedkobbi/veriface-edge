@@ -49,7 +49,8 @@ export async function POST(req: NextRequest) {
 
   await appendAudit({
     tenantId: session.tenantId,
-    eventType: 'key.rotated',
+    // SECURITY FIX (L-4): Was 'key.rotated' — this is a region failover event.
+    eventType: 'user.region_updated',
     payload: {
       action: 'region_failover',
       targetRegion: validation.data.regionId,

@@ -65,9 +65,29 @@ export async function GET(req: NextRequest) {
     }
 
     // CSV format — with formula injection protection (CWE-1236)
-    const escapeCsvCell = (value: string): string => {
+    // SECURITY FIX (L-9): Handle null/undefined values explicitly.
+    // Previously: `escapeCsvCell(e.actorIp ?? '')` handled null, but
+    // `e.prevHash` and `e.thisHash` were passed raw — if they were null
+    // (e.g., corrupted DB row), they'd render as "null" or "undefined" in
+    // the CSV, breaking parsers. Also, `JSON.parse(e.payload)` could throw
+    // if the payload was malformed, crashing the entire export.
+    const escapeCsvCell = (value: unknown): string => {
+      // Handle null/undefined explicitly
+      if (value === null || value === undefined) {
+        return '""'
+      }
+      let str: string
+      if (value instanceof Date) {
+        str = value.toISOString()
+      } else if (typeof value === 'number' || typeof value === 'boolean') {
+        return String(value)
+      } else if (typeof value === 'object') {
+        str = JSON.stringify(value)
+      } else {
+        str = String(value)
+      }
       // Escape double quotes
-      let escaped = value.replace(/"/g, '""')
+      let escaped = str.replace(/"/g, '""')
       // Prevent CSV formula injection: prefix dangerous chars with single quote
       if (/^[=+\-@\t\r]/.test(escaped)) {
         escaped = "'" + escaped
@@ -79,16 +99,24 @@ export async function GET(req: NextRequest) {
       'chainIndex,eventType,createdAt,actorIp,apiKeyId,prevHash,thisHash,payload',
     ]
     for (const e of entries) {
-      const payload = JSON.stringify(JSON.parse(e.payload))
+      // SECURITY FIX (L-9): Wrap JSON.parse in try/catch — a corrupted payload
+      // should not crash the entire export.
+      let payloadStr: string
+      try {
+        payloadStr = JSON.stringify(JSON.parse(e.payload))
+      } catch {
+        // Malformed JSON — export raw (escaped)
+        payloadStr = e.payload ?? ''
+      }
       csvRows.push([
-        e.chainIndex,
+        escapeCsvCell(e.chainIndex),
         escapeCsvCell(e.eventType),
-        escapeCsvCell(e.createdAt.toISOString()),
-        escapeCsvCell(e.actorIp ?? ''),
-        escapeCsvCell(e.apiKeyId ?? ''),
-        e.prevHash,
-        e.thisHash,
-        escapeCsvCell(payload),
+        escapeCsvCell(e.createdAt),
+        escapeCsvCell(e.actorIp),
+        escapeCsvCell(e.apiKeyId),
+        escapeCsvCell(e.prevHash),
+        escapeCsvCell(e.thisHash),
+        escapeCsvCell(payloadStr),
       ].join(','))
     }
 

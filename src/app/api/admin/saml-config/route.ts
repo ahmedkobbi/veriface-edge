@@ -98,7 +98,8 @@ export async function PUT(req: NextRequest) {
 
   await appendAudit({
     tenantId: session.tenantId,
-    eventType: 'key.rotated',
+    // SECURITY FIX (L-4): Was 'key.rotated' — this is a SAML config update.
+    eventType: 'user.saml_configured',
     payload: { action: 'saml_config_updated', enabled: data.enabled },
   })
 

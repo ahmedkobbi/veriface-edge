@@ -150,8 +150,10 @@ export async function createTwoFactorPendingToken(
   const now = Math.floor(Date.now() / 1000)
   const expiresIn = 5 * 60 // 5 minutes
   const serverKey = getServerSigningKey()
+  // SECURITY FIX (L-2): Include iss + aud claims for token-confusion defense.
   return signJwt({
     iss: 'veriface-edge-platform',
+    aud: 'veriface-edge-2fa',
     sub: userId,
     iat: now,
     exp: now + expiresIn,
@@ -193,6 +195,12 @@ export async function verifyTwoFactorPendingToken(
   const now = Math.floor(Date.now() / 1000)
   if (claims.exp && claims.exp < now) return null
   if (claims.type !== 'two_factor_pending') return null
+
+  // SECURITY FIX (L-2): Validate iss + aud for the 2FA pending token too.
+  if (claims.iss !== 'veriface-edge-platform') return null
+  const aud = claims.aud
+  const audMatches = Array.isArray(aud) ? aud.includes('veriface-edge-2fa') : aud === 'veriface-edge-2fa'
+  if (!audMatches) return null
 
   return { userId: claims.sub, email: claims.email }
 }

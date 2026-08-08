@@ -62,7 +62,8 @@ export async function POST(req: NextRequest) {
 
   await appendAudit({
     tenantId: session.tenantId,
-    eventType: 'key.rotated',
+    // SECURITY FIX (L-4): Was 'key.rotated' — this is a 2FA enablement event.
+    eventType: 'user.two_factor_enabled',
     payload: { action: '2fa_enabled', userId: session.user.id },
   })
 

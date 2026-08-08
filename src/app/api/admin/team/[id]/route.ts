@@ -59,7 +59,8 @@ export async function DELETE(
 
   await appendAudit({
     tenantId: session.tenantId,
-    eventType: 'key.rotated',
+    // SECURITY FIX (L-4): Was 'key.rotated' — this is a team member removal.
+    eventType: 'user.team_member_removed',
     payload: { action: 'member_removed', memberId: id, memberEmail: member.email },
   })
 
@@ -111,7 +112,8 @@ export async function PUT(
 
   await appendAudit({
     tenantId: session.tenantId,
-    eventType: 'key.rotated',
+    // SECURITY FIX (L-4): Was 'key.rotated' — this is a role change event.
+    eventType: 'user.team_member_role_changed',
     payload: { action: 'role_changed', memberId: id, oldRole: member.role, newRole: validation.data.role },
   })
 

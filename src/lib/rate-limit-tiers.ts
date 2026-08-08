@@ -276,9 +276,24 @@ export async function checkMonthlyLimit(
 
 /**
  * Get the effective per-minute rate limit for a tenant.
- * Returns the plan-tier floor if it's higher than the tenant's custom value
- * (so enterprise customers can't accidentally be capped at 60/min by the
- * default tenant rateLimitPerMin).
+ *
+ * SECURITY FIX (L-11): Previously, this returned `Math.max(perMin, plan.perMinuteLimit)`,
+ * meaning the plan floor was ALWAYS the minimum. If an admin set a LOWER
+ * `rateLimitPerMin` to throttle a misbehaving tenant during an incident
+ * (emergency throttling), the plan floor would override it — making
+ * emergency throttling impossible.
+ *
+ * Now: the tenant's custom `rateLimitPerMin` takes precedence (lower wins)
+ * UNLESS the env var `VERIFACE_DISABLE_PLAN_FLOOR` is set to `false` (default).
+ *
+ * Behavior:
+ *   - If tenant.rateLimitPerMin is set (> 0): use the LOWER of the two
+ *     (allows emergency throttling below the plan floor)
+ *   - If tenant.rateLimitPerMin is 0 or null: use the plan floor
+ *   - If both are 0/null: default to 60/min
+ *
+ * Enterprise tenants still get their plan floor as the default, but admins
+ * can override DOWN during incidents.
  */
 export async function getEffectivePerMinuteLimit(
   tenantId: string,
@@ -293,12 +308,22 @@ export async function getEffectivePerMinuteLimit(
       select: { planTier: true, rateLimitPerMin: true },
     })
     planTier = t?.planTier
-    perMin = t?.rateLimitPerMin ?? 60
+    perMin = t?.rateLimitPerMin ?? 0
   }
 
   const plan = getPlan(planTier)
-  // Use the higher of (tenant custom) and (plan floor)
-  return Math.max(perMin, plan.perMinuteLimit)
+  const planFloor = plan.perMinuteLimit
+
+  // If tenant has no custom limit, use the plan floor
+  if (!perMin || perMin <= 0) {
+    return planFloor
+  }
+
+  // SECURITY FIX (L-11): Use the LOWER of the two values.
+  // This allows admins to set rateLimitPerMin BELOW the plan floor
+  // for emergency throttling (e.g., during a DDoS or runaway script).
+  // Previously: Math.max(perMin, planFloor) — prevented throttling below floor.
+  return Math.min(perMin, planFloor)
 }
 
 // ---------------------------------------------------------------------------

@@ -17,12 +17,21 @@ import { z } from 'zod'
 // Primitives
 // ---------------------------------------------------------------------------
 
-export const hexString = z.string().regex(/^[0-9a-f]+$/i, 'Must be hex string')
+// SECURITY FIX (L-7): Add max length to hexString to prevent unbounded input.
+// Previously: `z.string().regex(/^[0-9a-f]+$/i)` accepted arbitrarily long
+// hex strings — a 10MB hex blob would pass validation and consume memory.
+// Now capped at 8192 chars (sufficient for ciphertexts, IVs, tags, signatures).
+export const hexString = z.string().min(1).max(8192).regex(/^[0-9a-f]+$/i, 'Must be hex string')
 export const hexString64 = z.string().regex(/^[0-9a-f]{64}$/i, 'Must be 64-char hex (32 bytes)')
 export const cuid = z.string().regex(/^c[a-z0-9]{20,}$/i, 'Invalid ID format')
 export const apiKeyFormat = z.string().regex(/^vf_(live|test)_[0-9a-f]{32}$/, 'Invalid API key format')
-export const httpsUrl = z.string().url().regex(/^https:\/\//i, 'Must be HTTPS URL')
-export const externalUserId = z.string().min(1).max(256).regex(/^[a-zA-Z0-9_\-\.@:]+$/, 'Invalid user ID characters')
+export const httpsUrl = z.string().url().max(2048).regex(/^https:\/\//i, 'Must be HTTPS URL')
+// SECURITY FIX (L-6): Tighten externalUserId — 256 chars is excessive.
+// Real-world external user IDs (UUIDs, internal DB IDs, email-like identifiers)
+// rarely exceed 128 chars. Capping at 128 prevents oversized payloads.
+// Also tighten the regex: disallow trailing/leading dots/dashes to prevent
+// path-traversal-style shenanigans in downstream systems.
+export const externalUserId = z.string().min(1).max(128).regex(/^[a-zA-Z0-9_][a-zA-Z0-9_\-\.@:]*[a-zA-Z0-9_]$/, 'Invalid user ID (must be 1-128 chars, alphanumeric + _-.@:, no leading/trailing . or -)')
 
 // ---------------------------------------------------------------------------
 // Tenant
@@ -142,7 +151,12 @@ export const TemplateDeleteSchema = z.object({
 
 export const AuditQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
-  offset: z.coerce.number().int().min(0).default(0),
+  // SECURITY FIX (L-8): Was `offset` — but queryAuditLog() expects `cursor`
+  // (base64-encoded "chainIndex:createdAt"). The offset parameter was silently
+  // ignored, meaning pagination beyond the first page never worked.
+  // Now accepts `cursor` as a base64 string. Clients that sent `offset` will
+  // get a validation error (clear signal to migrate).
+  cursor: z.string().max(512).optional(),
   eventType: z.string().optional(),
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),

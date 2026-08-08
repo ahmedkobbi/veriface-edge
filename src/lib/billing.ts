@@ -193,7 +193,8 @@ export async function createCheckoutSession(opts: {
 
   await appendAudit({
     tenantId: opts.tenantId,
-    eventType: 'tenant.created',
+    // SECURITY FIX (L-4): Was 'tenant.created' — this is a billing event, not tenant creation.
+    eventType: 'billing.invoice_created',
     payload: { action: 'checkout_session_created', planTier: opts.planTier, interval: opts.interval, sessionId: session.id },
   })
 
@@ -408,7 +409,8 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
   await appendAudit({
     tenantId,
-    eventType: 'tenant.created',
+    // SECURITY FIX (L-4): Was 'tenant.created' — this is a billing/payment confirmation event.
+    eventType: 'billing.payment_confirmed',
     payload: { action: 'subscription_activated', planTier, interval, sessionId: session.id },
   })
 
@@ -468,8 +470,9 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
 
   await appendAudit({
     tenantId,
-    eventType: 'tenant.deactivated',
-    payload: { action: 'subscription_canceled', subscriptionId: subscription.id },
+    // SECURITY FIX (L-4): Was 'tenant.deactivated' — this is a plan downgrade, not tenant deactivation.
+    eventType: 'tenant.plan_changed',
+    payload: { action: 'subscription_canceled', subscriptionId: subscription.id, newPlanTier: 'developer' },
   })
 
   logger.info({ tenantId }, 'Subscription canceled — downgraded to developer')
@@ -529,7 +532,8 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
   if (tenantId) {
     await appendAudit({
       tenantId,
-      eventType: 'tenant.deactivated',
+      // SECURITY FIX (L-4): Was 'tenant.deactivated' — this is a payment failure event.
+      eventType: 'billing.payment_failed',
       payload: { action: 'payment_failed', invoiceId: invoice.id, attemptCount: invoice.attempt_count },
     })
   }
@@ -701,7 +705,8 @@ export async function createNowPaymentsInvoice(opts: {
 
   await appendAudit({
     tenantId: opts.tenantId,
-    eventType: 'tenant.created',
+    // SECURITY FIX (L-4): Was 'tenant.created' — this is a crypto invoice creation event.
+    eventType: 'billing.crypto_invoice_created',
     payload: { action: 'crypto_invoice_created', planTier: opts.planTier, invoiceId: data.id },
   })
 
