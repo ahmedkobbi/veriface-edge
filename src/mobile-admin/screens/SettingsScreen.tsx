@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons'
 import * as Haptics from 'expo-haptics'
 import { useTheme } from '../theme/ThemeContext'
 import { GlassCard, GlassButton, GlassSwitch, showToast } from '../components/GlassComponents'
+import { VeriFaceLogo, BrandIcon } from '../components/VeriFaceLogo'
 import { ApiService } from '../services/ApiService'
 import { NotificationService } from '../services/NotificationService'
 import type { ThemeMode } from '../theme/theme'
@@ -52,18 +53,26 @@ export function SettingsScreen({ onLogout }: Props) {
       {/* Profile */}
       <GlassCard variant="glow" glowColor={theme.colors.primary}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <View style={{
-            width: 48, height: 48, borderRadius: 24,
-            backgroundColor: theme.colors.primary, justifyContent: 'center', alignItems: 'center',
-            marginRight: 12,
-          }}>
-            <Text style={{ color: '#fff', fontSize: 20, fontWeight: '700' }}>{user?.email?.[0]?.toUpperCase() || '?'}</Text>
-          </View>
-          <View style={{ flex: 1 }}>
+          <BrandIcon size={48} color={theme.colors.primary} />
+          <View style={{ flex: 1, marginLeft: 12 }}>
             <Text style={{ color: theme.colors.text, fontSize: 16, fontWeight: '600' }}>{user?.name || 'Admin'}</Text>
             <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginTop: 2 }}>{user?.email || '...'}</Text>
             <Text style={{ color: theme.colors.primary, fontSize: 11, marginTop: 2, textTransform: 'uppercase' }}>{user?.role || 'user'}</Text>
           </View>
+        </View>
+      </GlassCard>
+
+      {/* Brand */}
+      <GlassCard variant="medium" style={{ marginTop: 8 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <VeriFaceLogo variant="mark" size={32} />
+            <View>
+              <Text style={{ color: theme.colors.text, fontSize: 14, fontWeight: '700' }}>VeriFace Edge</Text>
+              <Text style={{ color: theme.colors.textMuted, fontSize: 10 }}>v1.0.0 · MIT License</Text>
+            </View>
+          </View>
+          <GlassBadge variant="info">v1.0</GlassBadge>
         </View>
       </GlassCard>
 

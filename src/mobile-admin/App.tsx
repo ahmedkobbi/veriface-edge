@@ -1,14 +1,14 @@
 /**
- * VeriFace Edge — Mobile Admin App (Glassmorphism Edition)
+ * VeriFace Edge — Mobile Admin App (Fully Branded Glassmorphism Edition)
  *
- * Premium glassmorphism UI matching the web admin panel.
- * Features:
+ * Premium branded mobile app with:
+ *   - Custom splash screen (VeriFace logo + animated entrance)
+ *   - Glassmorphism UI (GlassCard, GlassButton, etc.)
  *   - Dark/Light/Auto theme switcher
- *   - Glass components (GlassCard, GlassButton, GlassBadge, etc.)
- *   - Animated gradient background
  *   - Biometric authentication
  *   - Push notifications
  *   - Haptic feedback
+ *   - Branded logo throughout
  */
 
 import React, { useState, useEffect, useCallback } from 'react'
@@ -18,11 +18,12 @@ import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/
 import * as SecureStore from 'expo-secure-store'
 import * as LocalAuthentication from 'expo-local-authentication'
 import * as Notifications from 'expo-notifications'
-import * as Device from 'expo-device'
-import { View, ActivityIndicator, Text } from 'react-native'
+import { View, Text } from 'react-native'
 
 import { ThemeProvider, useTheme } from './theme/ThemeContext'
 import { GradientBg, GlassToastContainer, PremiumSpinner } from './components/GlassComponents'
+import { BrandedSplash } from './components/BrandedSplash'
+import { VeriFaceLogo } from './components/VeriFaceLogo'
 import { AuthScreen } from './screens/AuthScreen'
 import { MainTabNavigator } from './navigation/MainTabNavigator'
 import { NotificationService } from './services/NotificationService'
@@ -41,6 +42,7 @@ Notifications.setNotificationHandler({
 
 function AppContent() {
   const { theme, isDark } = useTheme()
+  const [showSplash, setShowSplash] = useState(true)
   const [isLoading, setIsLoading] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [sessionToken, setSessionToken] = useState<string | null>(null)
@@ -83,7 +85,7 @@ function AppContent() {
     const enrolled = await LocalAuthentication.isEnrolledAsync()
     if (!enrolled) return
     const result = await LocalAuthentication.authenticateAsync({
-      promptMessage: 'Authenticate to access VeriFace Admin',
+      promptMessage: 'Authenticate to access VeriFace Edge',
       fallbackLabel: 'Use Passcode',
     })
     if (!result.success) handleLogout()
@@ -148,25 +150,32 @@ function AppContent() {
     setIsAuthenticated(false)
   }
 
-  // Navigation theme
   const navTheme = isDark ? DarkTheme : DefaultTheme
   navTheme.colors = {
     ...navTheme.colors,
     primary: theme.colors.primary,
-    background: 'transparent', // Let GradientBg show through
+    background: 'transparent',
     card: theme.colors.tabBarBg,
     text: theme.colors.headerText,
     border: theme.colors.tabBarBorder,
     notification: theme.colors.error,
   }
 
+  // Show branded splash on launch
+  if (showSplash) {
+    return (
+      <BrandedSplash onAnimationComplete={() => setShowSplash(false)} />
+    )
+  }
+
   if (isLoading) {
     return (
       <GradientBg>
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <PremiumSpinner size="xl" />
+          <VeriFaceLogo variant="mark" size={60} />
+          <PremiumSpinner size="md" />
           <Text style={{ color: theme.colors.textMuted, marginTop: 16, fontSize: 12 }}>
-            Loading VeriFace Admin...
+            Loading VeriFace Edge...
           </Text>
         </View>
       </GradientBg>

@@ -1,0 +1,29 @@
+
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+    <linearGradient id="fg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.95)"/>
+      <stop offset="100%" stop-color="rgba(255,255,255,0.7)"/>
+    </linearGradient>
+  </defs>
+  <!-- Background with rounded corners -->
+  <rect width="1024" height="1024" rx="225.28" fill="url(#bg)"/>
+  <!-- Shield -->
+  <path d="M 512 153.6
+           L 819.2 286.72
+           L 819.2 512
+           Q 819.2 737.28 512 870.4
+           Q 204.8 737.28 204.8 512
+           L 204.8 286.72
+           Z"
+        fill="none" stroke="url(#fg)" stroke-width="40.96" stroke-linejoin="round"/>
+  <!-- Face circle -->
+  <circle cx="512" cy="430.08" r="102.4" fill="none" stroke="url(#fg)" stroke-width="30.72"/>
+  <!-- Scan lines -->
+  <rect x="358.4" y="593.92" width="307.2" height="15.36" rx="7.168" fill="rgba(255,255,255,0.6)"/>
+  <rect x="389.12" y="634.88" width="245.76" height="15.36" rx="7.168" fill="rgba(255,255,255,0.4)"/>
+</svg>

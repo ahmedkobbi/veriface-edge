@@ -1,0 +1,81 @@
+{
+  "expo": {
+    "name": "VeriFace Edge",
+    "slug": "veriface-edge-admin",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0f172a"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "io.veriface.admin",
+      "buildNumber": "1",
+      "appStoreUrl": "https://apps.apple.com/app/veriface-edge/id000000000",
+      "infoPlist": {
+        "NSCameraUsageDescription": "VeriFace Edge needs camera access to verify your identity. All face data is processed on-device.",
+        "NSFaceIDUsageDescription": "VeriFace Edge uses Face ID to secure your admin access.",
+        "NSUserNotificationsUsageDescription": "VeriFace Edge sends security and billing alerts to keep you informed.",
+        "CFBundleDisplayName": "VeriFace Edge",
+        "CFBundleShortVersionString": "1.0.0",
+        "LSApplicationCategoryType": "public.app-category.business"
+      },
+      "icon": {
+        "dark": "./assets/icon-dark.png",
+        "light": "./assets/icon.png",
+        "tinted": "./assets/icon-tinted.png"
+      }
+    },
+    "android": {
+      "package": "io.veriface.admin",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0f172a"
+      },
+      "playStoreUrl": "https://play.google.com/store/apps/details?id=io.veriface.admin",
+      "permissions": [
+        "CAMERA",
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT",
+        "VIBRATE",
+        "RECEIVE_BOOT_COMPLETED"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#10b981"
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#0f172a"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "veriface-edge-admin"
+      }
+    },
+    "description": "VeriFace Edge Admin — Privacy-first facial authentication management. Manage API keys, monitor security, view billing, and receive push alerts on the go.",
+    "githubUrl": "https://github.com/ahmedkobbi/veriface-edge",
+    "privacy": "https://github.com/ahmedkobbi/veriface-edge/blob/main/SECURITY.md",
+    "scheme": "veriface"
+  }
+}

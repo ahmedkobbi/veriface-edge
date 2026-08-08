@@ -10,6 +10,7 @@ import * as Haptics from 'expo-haptics'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useTheme } from '../theme/ThemeContext'
 import { GlassCard, GlassInput, GlassButton, PremiumSpinner, showToast } from '../components/GlassComponents'
+import { VeriFaceLogo } from '../components/VeriFaceLogo'
 
 interface Props {
   onLogin: (email: string, password: string, twoFactorCode?: string) => Promise<any>
@@ -53,26 +54,11 @@ export function AuthScreen({ onLogin }: Props) {
       style={{ flex: 1, justifyContent: 'center', padding: 32 }}
     >
       <View style={{ alignItems: 'center', marginBottom: 40 }}>
-        <LinearGradient
-          colors={['#10b981', '#06b6d4']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={{
-            width: 64, height: 64, borderRadius: 16,
-            justifyContent: 'center', alignItems: 'center',
-            ...theme.shadows.glow,
-          }}
-        >
-          <Text style={{ fontSize: 32 }}>🔐</Text>
-        </LinearGradient>
+        <VeriFaceLogo variant="full" size={56} />
         <Text style={{
-          fontSize: 28, fontWeight: '700',
-          color: theme.colors.primary,
-          marginTop: 16, marginBottom: 4,
+          fontSize: 14, color: theme.colors.textSecondary,
+          marginTop: 12,
         }}>
-          VeriFace Edge
-        </Text>
-        <Text style={{ fontSize: 14, color: theme.colors.textSecondary }}>
           Admin Console
         </Text>
       </View>
