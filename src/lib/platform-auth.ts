@@ -29,6 +29,7 @@ export interface PlatformUserPublic {
   role: string
   tenantId: string | null
   emailVerified: boolean
+  mustChangePassword: boolean
   createdAt: Date
   lastLoginAt: Date | null
 }
@@ -41,6 +42,9 @@ export function toPublicUser(user: any): PlatformUserPublic {
     role: user.role,
     tenantId: user.tenantId,
     emailVerified: user.emailVerified,
+    // SECURITY FIX (M-11): Surface mustChangePassword so the frontend can
+    // redirect to the password-change page after login.
+    mustChangePassword: user.mustChangePassword ?? false,
     createdAt: user.createdAt,
     lastLoginAt: user.lastLoginAt,
   }

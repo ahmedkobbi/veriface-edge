@@ -2,6 +2,18 @@
  * GET /api/status
  * Public status page — no auth required.
  * Returns system health, component status, uptime, recent incidents.
+ *
+ * SECURITY FIX (M-12): Removed business metrics (totalTenants, totalAuths,
+ * totalEnrollments) from the PUBLIC response. These are competitively
+ * sensitive and could be used by attackers to gauge the platform's size
+ * or by competitors for market intelligence. They are now only available
+ * via the authenticated /api/admin/analytics endpoint.
+ *
+ * The public status page now returns ONLY:
+ *   - Overall status (operational / degraded / partial_outage)
+ *   - Per-component status (no latencies — just up/down)
+ *   - SLA targets (publicly committed)
+ *   - Active incidents (publicly communicated)
  */
 
 import { NextResponse } from 'next/server'
@@ -29,14 +41,16 @@ export async function GET() {
     wsStatus = 'degraded'
   }
 
+  // SECURITY FIX (M-12): No latencies in the public response.
+  // Latencies reveal infrastructure details (DB location, instance size).
   const components = [
-    { name: 'API Server', status: 'operational', latencyMs: 1 },
-    { name: 'Database', status: dbStatus, latencyMs: dbStatus === 'operational' ? 5 : 0 },
-    { name: 'WebSocket Server', status: wsStatus, latencyMs: wsStatus === 'operational' ? 2 : 0 },
-    { name: 'Edge AI Pipeline', status: 'operational', description: 'Runs client-side' },
-    { name: 'Webhook Delivery', status: 'operational', description: 'Queue-based with retries' },
-    { name: 'OIDC Provider', status: 'operational' },
-    { name: 'Audit Log Chain', status: 'operational', description: 'SHA-256 hash-chained' },
+    { name: 'API Server', status: 'operational' as const },
+    { name: 'Database', status: dbStatus },
+    { name: 'WebSocket Server', status: wsStatus },
+    { name: 'Edge AI Pipeline', status: 'operational' as const, description: 'Runs client-side' },
+    { name: 'Webhook Delivery', status: 'operational' as const, description: 'Queue-based with retries' },
+    { name: 'OIDC Provider', status: 'operational' as const },
+    { name: 'Audit Log Chain', status: 'operational' as const, description: 'SHA-256 hash-chained' },
   ]
 
   const overallStatus = components.every(c => c.status === 'operational')
@@ -47,16 +61,14 @@ export async function GET() {
 
   return NextResponse.json({
     status: overallStatus,
+    // NOTE: uptime is fine to expose — it tells users about recent restarts
+    // (transparency), and doesn't reveal business metrics.
     uptime,
     version: '1.0.0',
     timestamp: new Date().toISOString(),
     components,
-    metrics: {
-      totalTenants: await db.tenant.count().catch(() => 0),
-      totalAuths: await db.auditLog.count({ where: { eventType: 'auth.success' } }).catch(() => 0),
-      totalEnrollments: await db.auditLog.count({ where: { eventType: 'enroll.success' } }).catch(() => 0),
-      avgResponseTimeMs: '< 200ms',
-    },
+    // SECURITY FIX (M-12): No metrics block. Use /api/admin/analytics (auth'd)
+    // for business metrics.
     incidents: [], // In production: fetch from incidents table
     sla: {
       uptime: '99.9%',

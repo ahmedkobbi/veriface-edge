@@ -12,6 +12,16 @@
  *   3. SDK calls /session/verify with { sessionId, jwt, commitment, liveness }.
  *   4. Backend verifies JWT signature, decrypts payload via ECDH-derived
  *      session key, verifies commitment, runs template match, issues token.
+ *
+ * SECURITY FIXES (M-2, M-3):
+ *   M-2: In-memory state was not shared across instances — on a multi-instance
+ *        deployment, the instance that handled /init may differ from the one
+ *        handling /verify, causing the private key lookup to fail. Now we
+ *        persist the ephemeral private key to Redis (with TTL matching the
+ *        session expiry) when Redis is available. In-memory remains as L1 cache.
+ *   M-3: The in-memory Map had no cap — a flood of /init calls (with no
+ *        corresponding /verify) would consume unbounded memory. Now capped
+ *        at MAX_INMEMORY_SESSIONS with LRU eviction.
  */
 
 import { db } from '@/lib/db'
@@ -24,6 +34,8 @@ import {
   secureRandomHex,
 } from '@/lib/crypto-server'
 import { appendAudit } from '@/lib/audit'
+import { getRedis } from '@/lib/cache/redis-cache'
+import { logger } from '@/lib/logger'
 
 export interface SessionInit {
   sessionId: string
@@ -31,6 +43,84 @@ export interface SessionInit {
   backendPubKey: string   // hex X25519 public key
   expiresAt: Date
 }
+
+// ---------------------------------------------------------------------------
+// In-memory L1 cache for session private keys
+// SECURITY FIX (M-3): Capped at MAX_INMEMORY_SESSIONS with LRU eviction.
+// ---------------------------------------------------------------------------
+
+const MAX_INMEMORY_SESSIONS = 10_000 // Cap to prevent memory exhaustion DoS
+
+interface SessionEntry {
+  privateKey: Uint8Array
+  createdAt: number
+  expiresAt: number
+  // Track last access for LRU eviction
+  lastAccessedAt: number
+}
+
+const activeSessions = new Map<string, SessionEntry>()
+
+/**
+ * Insert/Update a session entry, evicting the least-recently-used entry
+ * if we've hit the cap. The Map preserves insertion order, so the first
+ * entry is the oldest (LRU candidate).
+ */
+function setSessionEntry(sessionId: string, entry: SessionEntry): void {
+  // If we're at capacity, evict the LRU entry
+  if (activeSessions.size >= MAX_INMEMORY_SESSIONS && !activeSessions.has(sessionId)) {
+    // Find the LRU entry (smallest lastAccessedAt)
+    let lruKey: string | null = null
+    let lruTime = Infinity
+    for (const [key, val] of activeSessions) {
+      if (val.lastAccessedAt < lruTime) {
+        lruTime = val.lastAccessedAt
+        lruKey = key
+      }
+    }
+    if (lruKey) {
+      activeSessions.delete(lruKey)
+      logger.warn({ evictedSessionId: lruKey }, 'Session LRU eviction — cache at capacity')
+    }
+  }
+  activeSessions.set(sessionId, entry)
+}
+
+/**
+ * Get a session entry, updating lastAccessedAt for LRU tracking.
+ */
+function getSessionEntry(sessionId: string): SessionEntry | null {
+  const entry = activeSessions.get(sessionId)
+  if (!entry) return null
+  if (Date.now() > entry.expiresAt) {
+    activeSessions.delete(sessionId)
+    return null
+  }
+  entry.lastAccessedAt = Date.now()
+  return entry
+}
+
+// ---------------------------------------------------------------------------
+// Consumed session IDs (one-time use enforcement)
+// SECURITY FIX (M-2): Also persisted to Redis for multi-instance coordination.
+// ---------------------------------------------------------------------------
+
+const CONSUMED_TTL_SEC = 24 * 60 * 60 // 24 hours
+const consumedSessionIds = new Map<string, number>()
+
+// Periodic cleanup of expired consumed-session IDs (every 5 minutes)
+setInterval(() => {
+  const now = Date.now()
+  for (const [id, expiresAt] of consumedSessionIds) {
+    if (expiresAt < now) consumedSessionIds.delete(id)
+  }
+  // Hard cap to prevent unbounded growth
+  if (consumedSessionIds.size > 50_000) {
+    const entries = [...consumedSessionIds.entries()].sort((a, b) => a[1] - b[1])
+    const toRemove = entries.slice(0, entries.length - 25_000)
+    for (const [id] of toRemove) consumedSessionIds.delete(id)
+  }
+}, 5 * 60 * 1000).unref?.()
 
 export async function initSession(opts: {
   tenantId: string
@@ -62,18 +152,37 @@ export async function initSession(opts: {
     },
   })
 
-  // Store the private key in-memory only (NEVER persisted)
-  // The session verifier will use this to derive the ECDH shared secret
-  activeSessions.set(session.id, {
+  // Store the private key in-memory (L1) — NEVER persisted to DB
+  const now = Date.now()
+  setSessionEntry(session.id, {
     privateKey: keypair.privateKey,
-    createdAt: Date.now(),
+    createdAt: now,
     expiresAt: expiresAt.getTime(),
+    lastAccessedAt: now,
   })
 
-  // Schedule cleanup
+  // SECURITY FIX (M-2): Also store in Redis (L2) so other instances can verify.
+  // The private key is short-lived (60s TTL) and encrypted in transit via TLS.
+  // We store it as hex so it serializes cleanly.
+  const redis = await getRedis()
+  if (redis) {
+    try {
+      const redisKey = `session:privkey:${session.id}`
+      await redis.setEx(
+        redisKey,
+        ttl + 5, // Small buffer to account for clock skew
+        hex.encode(keypair.privateKey),
+      )
+    } catch (e) {
+      // Non-fatal — L1 cache still works for this instance
+      logger.warn({ error: e, sessionId: session.id }, 'Failed to store session key in Redis')
+    }
+  }
+
+  // Schedule in-memory cleanup
   setTimeout(() => {
     activeSessions.delete(session.id)
-  }, ttl * 1000)
+  }, ttl * 1000).unref?.()
 
   await appendAudit({
     tenantId: opts.tenantId,
@@ -90,23 +199,36 @@ export async function initSession(opts: {
   }
 }
 
-// In-memory store of ephemeral session private keys (NEVER persisted).
-// On a multi-instance deployment, use Redis with TTL — but for our
-// purpose, in-memory is sufficient and more secure (no network exposure).
-const activeSessions = new Map<string, {
-  privateKey: Uint8Array
-  createdAt: number
-  expiresAt: number
-}>()
+export async function getSessionPrivateKey(sessionId: string): Promise<Uint8Array | null> {
+  // L1: In-memory
+  const entry = getSessionEntry(sessionId)
+  if (entry) return entry.privateKey
 
-export function getSessionPrivateKey(sessionId: string): Uint8Array | null {
-  const entry = activeSessions.get(sessionId)
-  if (!entry) return null
-  if (Date.now() > entry.expiresAt) {
-    activeSessions.delete(sessionId)
-    return null
+  // L2: Redis (multi-instance coordination — SECURITY FIX M-2)
+  const redis = await getRedis()
+  if (redis) {
+    try {
+      const redisKey = `session:privkey:${sessionId}`
+      const hexKey = await redis.get(redisKey)
+      if (hexKey) {
+        const privateKey = hex.decode(hexKey)
+        // Populate L1 for subsequent lookups on this instance
+        const now = Date.now()
+        // We don't know the exact expiry from Redis, so use a conservative 60s
+        setSessionEntry(sessionId, {
+          privateKey,
+          createdAt: now,
+          expiresAt: now + 60_000,
+          lastAccessedAt: now,
+        })
+        return privateKey
+      }
+    } catch (e) {
+      logger.warn({ error: e, sessionId }, 'Failed to fetch session key from Redis')
+    }
   }
-  return entry.privateKey
+
+  return null
 }
 
 /**
@@ -145,9 +267,25 @@ export async function completeSession(
     data: { state, result: result ? JSON.stringify(result) : null },
   })
   activeSessions.delete(sessionId)
+
+  // SECURITY FIX (M-2): Also remove from Redis and mark as consumed in Redis
+  const redis = await getRedis()
+  if (redis) {
+    try {
+      await redis.del(`session:privkey:${sessionId}`)
+      await redis.setEx(
+        `session:consumed:${sessionId}`,
+        CONSUMED_TTL_SEC,
+        String(Date.now()),
+      )
+    } catch (e) {
+      logger.warn({ error: e, sessionId }, 'Failed to clean up Redis session state')
+    }
+  }
+
   // Track consumed session IDs for 24h (defense in depth — even if DB
   // is reset, we still reject recently-used session IDs)
-  consumedSessionIds.set(sessionId, Date.now() + 24 * 60 * 60 * 1000)
+  consumedSessionIds.set(sessionId, Date.now() + CONSUMED_TTL_SEC * 1000)
   // Cleanup old entries
   if (consumedSessionIds.size > 10_000) {
     const now = Date.now()
@@ -157,11 +295,26 @@ export async function completeSession(
   }
 }
 
-// Consumed session IDs (one-time use enforcement)
-const consumedSessionIds = new Map<string, number>()
+export async function isSessionConsumed(sessionId: string): Promise<boolean> {
+  // L1: in-memory
+  if (consumedSessionIds.has(sessionId)) return true
 
-export function isSessionConsumed(sessionId: string): boolean {
-  return consumedSessionIds.has(sessionId)
+  // L2: Redis (multi-instance coordination — SECURITY FIX M-2)
+  const redis = await getRedis()
+  if (redis) {
+    try {
+      const consumed = await redis.get(`session:consumed:${sessionId}`)
+      if (consumed) {
+        // Populate L1 for future lookups
+        consumedSessionIds.set(sessionId, Date.now() + CONSUMED_TTL_SEC * 1000)
+        return true
+      }
+    } catch {
+      // Ignore — fall through to false
+    }
+  }
+
+  return false
 }
 
 /**

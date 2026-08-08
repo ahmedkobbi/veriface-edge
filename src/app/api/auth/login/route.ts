@@ -106,6 +106,21 @@ export async function POST(req: NextRequest) {
 
     const user = await db.platformUser.findUnique({
       where: { email: email.toLowerCase() },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        tenantId: true,
+        emailVerified: true,
+        passwordHash: true,
+        twoFactorEnabled: true,
+        twoFactorSecret: true,
+        twoFactorBackupCodes: true,
+        mustChangePassword: true,
+        createdAt: true,
+        lastLoginAt: true,
+      },
     })
 
     // Generic error to avoid user enumeration
@@ -170,6 +185,9 @@ export async function POST(req: NextRequest) {
           webauthn: webauthnCreds.length > 0,
         },
         webauthnCredentialCount: webauthnCreds.length,
+        // SECURITY FIX (M-11): Surface mustChangePassword so the client can
+        // redirect to the password-change page after completing 2FA.
+        mustChangePassword: user.mustChangePassword,
         message: webauthnCreds.length > 0
           ? 'Use your hardware key / passkey, or enter the 6-digit code from your authenticator app.'
           : 'Enter the 6-digit code from your authenticator app.',

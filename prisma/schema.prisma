@@ -406,6 +406,15 @@ model PlatformUser {
   twoFactorEnabled  Boolean  @default(false)
   twoFactorSecret   String?  // encrypted TOTP secret (base32)
   twoFactorBackupCodes String? // JSON array of hashed backup codes
+  // SECURITY FIX (M-11): Force password change on first login after team invite.
+  // Set to true when an admin invites a user with a temp password; cleared on
+  // first successful password change.
+  mustChangePassword Boolean @default(false)
+  // SECURITY FIX (M-10): One-time invite token (hashed) — sent via email,
+  // NOT returned in the API response. The invitee clicks the link to set
+  // their own password.
+  inviteTokenHash String?
+  inviteTokenExpiresAt DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

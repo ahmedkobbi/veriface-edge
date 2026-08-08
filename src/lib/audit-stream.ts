@@ -28,14 +28,56 @@ export interface AuditSubscriber {
   }
 }
 
+// SECURITY FIX (M-8): Per-tenant connection limit to prevent DoS.
+// Without this, a single tenant could open thousands of SSE connections,
+// exhausting server resources (file descriptors, memory, event-loop slots).
+const MAX_SUBSCRIBERS_PER_TENANT = 10
+// Global cap across all tenants (defense in depth)
+const MAX_TOTAL_SUBSCRIBERS = 1000
+
 const subscribers = new Map<string, AuditSubscriber>()
 
 /**
- * Register a new SSE subscriber.
+ * Count active subscribers for a tenant.
  */
-export function subscribe(subscriber: AuditSubscriber): () => void {
+export function getSubscriberCount(tenantId: string): number {
+  let count = 0
+  for (const sub of subscribers.values()) {
+    if (sub.tenantId === tenantId) count++
+  }
+  return count
+}
+
+/**
+ * Register a new SSE subscriber.
+ * SECURITY FIX (M-8): Enforces per-tenant and global connection limits.
+ * Returns the unsubscribe function on success, or null if the limit is hit.
+ */
+export function subscribe(subscriber: AuditSubscriber): (() => void) | null {
+  // Global cap (defense in depth)
+  if (subscribers.size >= MAX_TOTAL_SUBSCRIBERS) {
+    logger.warn(
+      { subscriberId: subscriber.id, total: subscribers.size, limit: MAX_TOTAL_SUBSCRIBERS },
+      'SSE subscription rejected — global subscriber cap reached',
+    )
+    return null
+  }
+
+  // Per-tenant cap
+  const tenantCount = getSubscriberCount(subscriber.tenantId)
+  if (tenantCount >= MAX_SUBSCRIBERS_PER_TENANT) {
+    logger.warn(
+      { subscriberId: subscriber.id, tenantId: subscriber.tenantId, tenantCount, limit: MAX_SUBSCRIBERS_PER_TENANT },
+      'SSE subscription rejected — per-tenant cap reached',
+    )
+    return null
+  }
+
   subscribers.set(subscriber.id, subscriber)
-  logger.info({ subscriberId: subscriber.id, tenantId: subscriber.tenantId, total: subscribers.size }, 'Audit subscriber added')
+  logger.info(
+    { subscriberId: subscriber.id, tenantId: subscriber.tenantId, total: subscribers.size, tenantCount: tenantCount + 1 },
+    'Audit subscriber added',
+  )
   return () => {
     subscribers.delete(subscriber.id)
     logger.info({ subscriberId: subscriber.id, total: subscribers.size }, 'Audit subscriber removed')
@@ -86,17 +128,6 @@ export function broadcastAuditEntry(entry: {
   if (sent > 0) {
     logger.debug({ sent, total: subscribers.size, eventType: entry.eventType }, 'Audit entry streamed')
   }
-}
-
-/**
- * Get the number of active subscribers for a tenant.
- */
-export function getSubscriberCount(tenantId: string): number {
-  let count = 0
-  for (const sub of subscribers.values()) {
-    if (sub.tenantId === tenantId) count++
-  }
-  return count
 }
 
 // ---------------------------------------------------------------------------

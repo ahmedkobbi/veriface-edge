@@ -58,12 +58,104 @@ export interface AuditEvent {
 
 const GENESIS_HASH = '0'.repeat(64)
 
+// ---------------------------------------------------------------------------
+// PII redaction (SECURITY FIX M-4)
+// ---------------------------------------------------------------------------
+// The audit log is retained for 7 years (GDPR/SOX). If PII (email, IP,
+// userId, externalUserId, biometric hashes) is stored in plaintext in the
+// payload, a DB compromise exposes all of it. We redact known PII fields
+// before persisting.
+//
+// Approach: recursively walk the payload object and replace values for
+// known PII keys with a SHA-256 prefix (first 12 chars). This preserves
+// the ability to correlate events by the same PII value (same hash prefix)
+// without storing the raw value.
+
+const PII_KEYS = new Set([
+  'email',
+  'mail',
+  'ip',
+  'actorIp',
+  'clientIp',
+  'userId',
+  'user_id',
+  'externalUserId',
+  'external_user_id',
+  'phoneNumber',
+  'phone',
+  'name',
+  'fullName',
+  'full_name',
+  'address',
+  'street',
+  'city',
+  'zip',
+  'postalCode',
+  'ssn',
+  'nationalId',
+  'dateOfBirth',
+  'dob',
+  'password',
+  'currentPassword',
+  'newPassword',
+  'secret',
+  'totpSecret',
+  'twoFactorSecret',
+  'backupCode',
+  'backupCodes',
+  'apiKey',
+  'api_key',
+  'token',
+  'accessToken',
+  'refreshToken',
+  'sessionToken',
+  'cookie',
+  'authorization',
+])
+
+function redactValue(value: unknown): unknown {
+  if (value === null || value === undefined) return value
+  if (typeof value === 'string') {
+    // Keep short strings non-identifiable but correlatable
+    if (value.length === 0) return value
+    return `[redacted:${sha256Hex(value).slice(0, 12)}]`
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return value
+  }
+  if (Array.isArray(value)) {
+    return value.map(redactValue)
+  }
+  if (typeof value === 'object') {
+    return redactPii(value as Record<string, unknown>)
+  }
+  return value
+}
+
+function redactPii(payload: Record<string, unknown>): Record<string, unknown> {
+  const redacted: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(payload)) {
+    if (PII_KEYS.has(key)) {
+      redacted[key] = redactValue(value)
+    } else if (value !== null && typeof value === 'object') {
+      redacted[key] = redactValue(value)
+    } else {
+      redacted[key] = value
+    }
+  }
+  return redacted
+}
+
 export async function appendAudit(event: AuditEvent): Promise<{
   id: string
   chainIndex: number
   thisHash: string
 }> {
-  const payloadStr = JSON.stringify(event.payload)
+  // SECURITY FIX (M-4): Redact PII before persisting to the audit log.
+  // The audit log is retained for 7 years — plaintext PII would be a
+  // goldmine for an attacker with DB access.
+  const redactedPayload = redactPii(event.payload)
+  const payloadStr = JSON.stringify(redactedPayload)
   const MAX_RETRIES = 3
 
   // FIX (H8): Use a transaction with retry on unique constraint violation.
@@ -108,10 +200,11 @@ export async function appendAudit(event: AuditEvent): Promise<{
         })
 
         // Broadcast to SSE/WS subscribers (real-time SIEM streaming)
+        // SECURITY FIX (M-4): Broadcast the REDACTED payload, not the raw one.
         broadcastAuditEntry({
           tenantId: event.tenantId,
           eventType: event.eventType,
-          payload: event.payload,
+          payload: redactedPayload,
           chainIndex,
           thisHash,
           actorIp: event.actorIp,

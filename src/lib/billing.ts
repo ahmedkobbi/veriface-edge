@@ -813,6 +813,24 @@ export async function handleNowPaymentsWebhook(
   // --- Security Layer 4: Server-side price verification ---
   // NEVER trust the price from the webhook body. Verify the paid amount
   // matches the expected plan price from our server-side BILLING_PLANS.
+  //
+  // SECURITY FIX (M-15): Previously, the code used `body.price_amount || 0`,
+  // which meant a webhook with price_amount=0 (or missing) would be compared
+  // as 0. If the plan was the free Developer tier (expectedPriceUsd=0), the
+  // check `Math.abs(0 - 0) > 0` evaluates to false → payment accepted.
+  // An attacker could create a fake webhook with planTier='developer' and
+  // price_amount=0 to "confirm" a subscription (though Developer is free,
+  // this could be chained with other attacks).
+  //
+  // Worse: if `expectedPriceUsd` is 0 (free plan), ANY amount including 0
+  // passes the tolerance check (0 * 0.01 = 0, |anything - 0| > 0 is false
+  // only when anything === 0). So a 0-value payment for a free plan is
+  // "accepted" — but that's a no-op.
+  //
+  // The real fix: cross-reference the payment against OUR database record
+  // (created when the invoice was generated). We stored the expected amount
+  // in the Payment table at invoice creation time. If the webhook's
+  // price_amount doesn't match what WE recorded, reject.
   const plan = BILLING_PLANS[planTier as keyof typeof BILLING_PLANS]
   if (!plan) {
     logger.error({ planTier }, 'NowPayments webhook: unknown plan tier')
@@ -821,7 +839,61 @@ export async function handleNowPaymentsWebhook(
 
   const expectedInterval = body.metadata?.interval || 'month'
   const expectedPriceUsd = expectedInterval === 'year' ? plan.priceYearly : plan.priceMonthly
-  const actualPriceUsd = body.price_amount || 0
+
+  // SECURITY FIX (M-15): Require price_amount to be present and a positive number.
+  // NowPayments always includes price_amount in confirmed/finished webhooks.
+  // A missing or zero price_amount is a strong signal of manipulation.
+  const actualPriceUsd = typeof body.price_amount === 'number' ? body.price_amount : parseFloat(body.price_amount)
+  if (!Number.isFinite(actualPriceUsd) || actualPriceUsd <= 0) {
+    logger.error(
+      { paymentId, priceAmount: body.price_amount, planTier },
+      'NowPayments webhook: missing or non-positive price_amount — possible manipulation',
+    )
+    await appendAudit({
+      tenantId,
+      eventType: 'tenant.deactivated',
+      payload: {
+        action: 'price_amount_invalid',
+        paymentId,
+        priceAmount: body.price_amount,
+        planTier,
+      },
+    })
+    return { received: false, error: 'Invalid price_amount — payment rejected' }
+  }
+
+  // SECURITY FIX (M-15): Cross-reference against our Payment record.
+  // We stored the expected amount when the invoice was created. If the
+  // webhook amount doesn't match what we recorded, reject.
+  const storedPayment = await db.payment.findFirst({
+    where: { providerPaymentId: String(paymentId), provider: 'nowpayments' },
+  })
+  if (!storedPayment) {
+    logger.error(
+      { paymentId, tenantId },
+      'NowPayments webhook: no matching Payment record — possible forgery',
+    )
+    return { received: false, error: 'No matching payment record' }
+  }
+  // storedPayment.amount is in cents; convert to dollars for comparison
+  const storedExpectedUsd = storedPayment.amount / 100
+  if (Math.abs(actualPriceUsd - storedExpectedUsd) > storedExpectedUsd * 0.01) {
+    logger.error(
+      { paymentId, storedExpectedUsd, actualPriceUsd },
+      'NowPayments webhook: price_amount does not match stored Payment record',
+    )
+    await appendAudit({
+      tenantId,
+      eventType: 'tenant.deactivated',
+      payload: {
+        action: 'price_mismatch_stored_record',
+        paymentId,
+        storedExpectedUsd,
+        actualPriceUsd,
+      },
+    })
+    return { received: false, error: 'Price mismatch against stored record' }
+  }
 
   // Allow 1% tolerance for crypto price fluctuations (NowPayments converts USD → crypto at checkout time)
   if (Math.abs(actualPriceUsd - expectedPriceUsd) > expectedPriceUsd * 0.01) {

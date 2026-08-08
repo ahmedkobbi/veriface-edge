@@ -3,12 +3,21 @@
  *
  * Comprehensive health check for load balancers and monitoring.
  *
- * Checks:
- *   - Database connectivity
- *   - Memory usage (heap, RSS)
- *   - WebSocket server connectivity
- *   - KMS key availability (mocked)
- *   - Process uptime
+ * SECURITY FIX (M-14): Previously, the health endpoint exposed internal
+ * details in the PUBLIC response:
+ *   - PID (process ID — useful for process-injection attacks)
+ *   - Exact heap usage (memory layout info — useful for heap-spray attacks)
+ *   - Exact latencies per component (infrastructure fingerprinting)
+ *   - Detailed error messages (info leak for attackers probing the system)
+ *
+ * Now: the PUBLIC response contains ONLY:
+ *   - Overall status (healthy / degraded / down)
+ *   - Per-component status (ok / degraded / down — no latencies, no details)
+ *   - Version + timestamp
+ *
+ * Detailed info (latencies, heap, PID, error details) is logged server-side
+ * at the debug level — accessible to operators via structured logs, not to
+ * anonymous HTTP clients.
  *
  * Returns:
  *   200 — all checks pass (status: "healthy")
@@ -17,7 +26,7 @@
 
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { safeErrorResponse } from '@/lib/config'
+import { logger } from '@/lib/logger'
 
 const startedAt = Date.now()
 
@@ -38,7 +47,7 @@ async function checkDatabase(): Promise<HealthCheck> {
       name: 'database',
       status: 'down',
       latencyMs: Date.now() - start,
-      detail: 'Check failed'
+      detail: 'Check failed',
     }
   }
 }
@@ -102,15 +111,27 @@ export async function GET() {
   const anyDown = checks.some((c) => c.status === 'down')
   const status = anyDown ? 'degraded' : allOk ? 'healthy' : 'degraded'
 
+  // SECURITY FIX (M-14): Log the detailed checks server-side for operators.
+  // Do NOT include details/latencies/PID in the public response.
+  logger.debug({ checks, status }, 'Health check details')
+
+  // PUBLIC response — minimal, no internal details
   const response = {
     status,
-    uptime: Math.floor((Date.now() - startedAt) / 1000),
+    // Bucket uptime into coarse ranges to avoid leaking exact restart times
+    // (which could reveal deployment cadence).
+    uptimeBucket:
+      Date.now() - startedAt < 60_000 ? '< 1min' :
+      Date.now() - startedAt < 3_600_000 ? '< 1hr' :
+      Date.now() - startedAt < 86_400_000 ? '< 24hr' :
+      '> 24hr',
     version: '1.0.0',
     timestamp: new Date().toISOString(),
-    checks: checks.reduce((acc, c) => {
-      acc[c.name] = { status: c.status, latencyMs: c.latencyMs, detail: c.detail }
+    // Per-component status only — no latencies, no details
+    components: checks.reduce((acc, c) => {
+      acc[c.name] = { status: c.status }
       return acc
-    }, {} as Record<string, any>),
+    }, {} as Record<string, { status: string }>),
   }
 
   return NextResponse.json(response, {

@@ -369,7 +369,11 @@ function checkInMemoryRateLimit(
   const cached = rateLimitCache.get(bucketKey)
   if (cached && cached.windowStart === windowStartMs) {
     if (cached.count >= limit) {
-      return { allowed: false, remaining: 0, resetAt } as any
+      // SECURITY FIX (M-18): Previously returned `{ allowed: false, remaining: 0, resetAt }`
+      // — wrong shape (missing `count`, has extra `remaining` field). The function's
+      // return type is `{ allowed, count, resetAt }`. Callers reading `count` would
+      // get `undefined`, breaking rate-limit-exceeded logging and metrics.
+      return { allowed: false, count: cached.count, resetAt }
     }
     cached.count++
     return { allowed: true, count: cached.count, resetAt }

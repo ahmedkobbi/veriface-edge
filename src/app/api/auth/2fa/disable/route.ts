@@ -11,6 +11,7 @@ import { db } from '@/lib/db'
 import { requirePlatformSession } from '@/lib/platform-session'
 import { verifyTOTP, verifyBackupCode, consumeBackupCode } from '@/lib/totp'
 import { appendAudit } from '@/lib/audit'
+import { decryptField } from '@/lib/field-encryption'
 import { logger } from '@/lib/logger'
 import { z } from 'zod'
 import { enqueueEmail } from '@/lib/email-notifications'
@@ -41,7 +42,11 @@ export async function POST(req: NextRequest) {
   let verified = false
 
   if (isNumeric6 && user.twoFactorSecret) {
-    verified = verifyTOTP(code, user.twoFactorSecret)
+    // SECURITY FIX (M-5): Decrypt the TOTP secret before verification.
+    const totpSecret = decryptField(user.twoFactorSecret)
+    if (totpSecret) {
+      verified = verifyTOTP(code, totpSecret, user.id)
+    }
   }
 
   // If TOTP didn't work, try backup code

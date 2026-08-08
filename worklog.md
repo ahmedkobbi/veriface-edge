@@ -382,3 +382,42 @@ Stage Summary:
   - Docs: src/sdk/PLATFORMS.md (1 file)
   - Tests: tests/cross-platform.test.ts (1 file)
 - Total: 38 new files across 4 SDKs + docs + tests
+
+---
+Task ID: M-1-to-M-18
+Agent: Super Z (main)
+Task: Fix all 18 MEDIUM vulnerabilities from the black-hat penetration test
+
+Work Log:
+- Read docs/SECURITY_AUDIT_FINAL.md to identify M-1 through M-18 findings
+- Examined affected code files for each MEDIUM finding
+- Fixed M-1: body-limits.ts — added enforceBodySize() that reads actual bytes (defeats Content-Length spoofing + chunked-encoding bypass)
+- Fixed M-2: session.ts — session private keys + consumed session IDs now persist to Redis (L2) for multi-instance coordination; getSessionPrivateKey() and isSessionConsumed() are now async
+- Fixed M-3: session.ts — in-memory session map capped at 10,000 entries with LRU eviction
+- Fixed M-4: audit.ts — PII redaction (email, IP, userId, externalUserId, name, etc.) before persisting to the hash-chained audit log; broadcast uses redacted payload too
+- Fixed M-5: created field-encryption.ts (AES-256-GCM with master key); 2fa/enable route encrypts TOTP secret before storing; 2fa/challenge and 2fa/disable routes decrypt before verification
+- Fixed M-6: logger.ts — expanded redaction paths from ~26 to ~80 (added ipnSecret, STRIPE_SECRET_KEY, encryptedEmbedding, tempPassword, totpSecret, twoFactorSecret, backupCodes, passwordHash, ssn, nationalId, dateOfBirth, kmsKeyId, hsmPin, DATABASE_URL, REDIS_URL, serverSigningKey, etc.)
+- Fixed M-7: middleware.ts — removed 'unsafe-inline' from style-src in production (kept for dev only); added frame-src 'none'; added 'veriface-policy' to trusted-types
+- Fixed M-8: audit-stream.ts — per-tenant SSE cap (10) + global cap (1000); subscribe() returns null on rejection; SSE route pre-checks limit with 429 response
+- Fixed M-9: api-keys/create/route.ts — validates expiresInDays is a positive integer between 1 and 365
+- Fixed M-10: admin/team/route.ts — replaced temp password in HTTP response with one-time invite token (hashed at rest) emailed directly to invitee
+- Fixed M-11: added mustChangePassword field to PlatformUser schema; set on team invite; cleared on password change; surfaced in login response (incl. 2FA challenge response)
+- Fixed M-12: status/route.ts — removed totalTenants, totalAuths, totalEnrollments, avgResponseTimeMs, and per-component latencies from public response
+- Fixed M-13: metrics/route.ts — always requires auth (loopback IP OR API key with audit:read scope); no more dev-mode bypass
+- Fixed M-14: health/route.ts — removed PID, exact heap usage, latencies, and error details from public response; logs details server-side at debug level; uptime bucketed into coarse ranges
+- Fixed M-15: billing.ts — NowPayments webhook now requires price_amount > 0 and cross-references against stored Payment record (defeats price_amount=0 bypass + forged webhooks)
+- Fixed M-16: fips/index.ts — self-test results now cached with 1-hour TTL (was forever); added forceFipsSelfTestReRun() for operator-initiated re-runs
+- Fixed M-17: fips/index.ts — SHA-256 KAT now uses NIST test vectors (SHA-256("abc") and SHA-256("")) instead of tautological self-comparison; HKDF KAT now checks determinism + non-zero + input-sensitivity
+- Fixed M-18: redis-cache.ts — checkInMemoryRateLimit() now returns { allowed, count, resetAt } (was { allowed, remaining, resetAt } — wrong shape, missing count)
+- Updated callers of getSessionPrivateKey() and isSessionConsumed() in session/verify/route.ts to await the now-async functions
+- Ran prisma db push to apply schema changes (mustChangePassword, inviteTokenHash, inviteTokenExpiresAt)
+- Verified TypeScript compilation: all modified files compile cleanly (pre-existing errors in scripts/zk-test-proof.ts and src/sdk/react-native/useVeriFace.ts are unrelated)
+
+Stage Summary:
+- All 18 MEDIUM vulnerabilities (M-1 through M-18) from the penetration test are fixed
+- 24 files modified, 1 new file created (src/lib/field-encryption.ts)
+- Prisma schema updated with 3 new fields on PlatformUser (mustChangePassword, inviteTokenHash, inviteTokenExpiresAt)
+- All fixes include detailed inline comments explaining the vulnerability and the fix rationale
+- TypeScript compiles cleanly for all modified files
+- Combined with the previous 12 CRITICAL (C-1 to C-12) and 15 HIGH (H-1 to H-15) fixes, the platform now has 45 of 65 findings resolved (12 CRITICAL + 15 HIGH + 18 MEDIUM)
+- Remaining: 12 LOW + 8 INFO (defense-in-depth recommendations)

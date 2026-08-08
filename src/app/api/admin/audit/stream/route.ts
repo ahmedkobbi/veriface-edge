@@ -39,6 +39,24 @@ export async function GET(req: NextRequest) {
 
   const subscriberId = crypto.randomUUID()
 
+  // SECURITY FIX (M-8): Check the per-tenant SSE connection limit BEFORE
+  // creating the stream. If the tenant has too many active subscribers,
+  // reject the connection with 429 instead of accepting then failing.
+  const currentSubscribers = getSubscriberCount(session.tenantId)
+  const MAX_SUBSCRIBERS_PER_TENANT = 10
+  if (currentSubscribers >= MAX_SUBSCRIBERS_PER_TENANT) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Too many concurrent SSE connections for this tenant',
+        code: 'SSE_LIMIT_REACHED',
+        limit: MAX_SUBSCRIBERS_PER_TENANT,
+        active: currentSubscribers,
+      },
+      { status: 429, headers: { 'Retry-After': '60' } },
+    )
+  }
+
   // Create a readable stream for SSE
   const stream = new ReadableStream({
     start(controller) {
@@ -54,13 +72,26 @@ export async function GET(req: NextRequest) {
       })}\n\n`
       controller.enqueue(encoder.encode(initEvent))
 
-      // Register subscriber
+      // Register subscriber (M-8: subscribe may reject if limit hit between
+      // the pre-check above and this call — race condition tolerant)
       const unsubscribe = subscribe({
         id: subscriberId,
         tenantId: session.tenantId,
         controller,
         filters,
       })
+
+      if (!unsubscribe) {
+        // Lost the race — another connection was accepted between the pre-check
+        // and the subscribe call. Close this connection gracefully.
+        const rejectEvent = `event: error\ndata: ${JSON.stringify({
+          code: 'SSE_LIMIT_REACHED',
+          message: 'Too many concurrent SSE connections',
+        })}\n\n`
+        controller.enqueue(encoder.encode(rejectEvent))
+        controller.close()
+        return
+      }
 
       // Heartbeat every 30s (keep connection alive)
       const heartbeat = setInterval(() => {

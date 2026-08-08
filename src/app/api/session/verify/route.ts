@@ -143,7 +143,8 @@ export async function POST(req: NextRequest) {
     const { sessionId, jwt, sdkPubKey, encryptedEmbedding, commitment, commitmentNonce, liveness, antiInjection, externalUserId } = body
 
     // Replay protection: check if session was already consumed
-    if (isSessionConsumed(sessionId)) {
+    // SECURITY FIX (M-2): isSessionConsumed is now async (checks Redis L2)
+    if (await isSessionConsumed(sessionId)) {
       logger.warn({ tenantId, sessionId }, 'Replay attempt: session already consumed')
       return NextResponse.json(
         { success: false, code: 'SESSION_REPLAY', error: 'Session already used' },
@@ -314,7 +315,8 @@ export async function POST(req: NextRequest) {
     }
 
     // 6. Derive session key & decrypt embedding
-    const backendPriv = getSessionPrivateKey(sessionId)
+    // SECURITY FIX (M-2): getSessionPrivateKey is now async (checks Redis L2)
+    const backendPriv = await getSessionPrivateKey(sessionId)
     if (!backendPriv) {
       return NextResponse.json(
         { success: false, code: 'SESSION_EXPIRED', error: 'Session key not found (expired)' },

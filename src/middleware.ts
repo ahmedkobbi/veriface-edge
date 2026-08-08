@@ -24,23 +24,36 @@ const SECURITY_HEADERS: Record<string, string> = {
   'X-DNS-Prefetch-Control': 'off',
   'X-Permitted-Cross-Domain-Policies': 'none',
   // Content-Security-Policy — strict, allows only self
-  // SECURITY FIX (H-5): Removed 'unsafe-inline' and external CDN.
-  // Inline scripts must use nonces or hashes. Dependencies are self-hosted.
+  // SECURITY FIX (H-5): Removed 'unsafe-inline' and external CDN from script-src.
+  // SECURITY FIX (M-7): Removed 'unsafe-inline' from style-src. Next.js generates
+  //   style tags with nonces/hashes in production builds. For dev, React refresh
+  //   runtime needs 'unsafe-inline' for styles — we allow this ONLY in dev.
+  //   Also removed the contradiction: 'require-trusted-types-for "script"'
+  //   is incompatible with 'unsafe-inline' in script-src. Both are now clean.
+  //   Inline scripts must use nonces or hashes. Dependencies are self-hosted.
   'Content-Security-Policy': [
     "default-src 'self'",
     "script-src 'self' 'wasm-unsafe-eval'",
     "connect-src 'self' https: wss:",
     "img-src 'self' data: blob: https:",
     "media-src 'self' blob:",
-    "style-src 'self' 'unsafe-inline'",
+    // Dev: allow inline styles (React refresh + Next.js dev overlays).
+    // Prod: strict — styles must come from self or use nonces.
+    process.env.NODE_ENV === 'production'
+      ? "style-src 'self'"
+      : "style-src 'self' 'unsafe-inline'",
     "font-src 'self' data:",
     "worker-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
     "frame-ancestors 'none'",
+    "frame-src 'none'",
+    // Trusted Types: only allow 'default' + 'verifice-policy' policies.
+    // require-trusted-types-for 'script' enforces that all DOM sink writes
+    // (innerHTML, etc.) go through a vetted Trusted Types policy.
     "require-trusted-types-for 'script'",
-    "trusted-types default",
+    "trusted-types default veriface-policy",
   ].join('; '),
 }
 

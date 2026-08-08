@@ -12,6 +12,7 @@ import { db } from '@/lib/db'
 import { requirePlatformSession } from '@/lib/platform-session'
 import { verifyTOTP, generateBackupCodes } from '@/lib/totp'
 import { appendAudit } from '@/lib/audit'
+import { encryptField } from '@/lib/field-encryption'
 import { logger } from '@/lib/logger'
 import { z } from 'zod'
 
@@ -47,10 +48,13 @@ export async function POST(req: NextRequest) {
   const { plaintext: backupCodes, hashed: hashedBackupCodes } = generateBackupCodes()
 
   // Store secret + backup codes + enable 2FA
+  // SECURITY FIX (M-5): Encrypt the TOTP secret at rest with AES-256-GCM.
+  // Previously stored in plaintext — DB compromise would reveal all 2FA secrets,
+  // enabling attackers to generate valid TOTP codes and bypass 2FA entirely.
   await db.platformUser.update({
     where: { id: session.user.id },
     data: {
-      twoFactorSecret: secret,
+      twoFactorSecret: encryptField(secret),
       twoFactorEnabled: true,
       twoFactorBackupCodes: JSON.stringify(hashedBackupCodes),
     },

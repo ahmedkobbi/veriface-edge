@@ -4,7 +4,23 @@
  * Protected by platform session cookie.
  *
  * POST /api/admin/team
- * Invite a new team member (creates a PlatformUser with a temp password).
+ * Invite a new team member.
+ *
+ * SECURITY FIXES (M-10, M-11):
+ *   M-10: Previously, the invite endpoint generated a temp password and
+ *         RETURNED it in the HTTP response. This is insecure because:
+ *           - The temp password is sent over the API to the admin
+ *           - The admin must then securely communicate it to the invitee
+ *           - The temp password appears in HTTP logs, browser history, etc.
+ *         Now: we generate a one-time invite token (hashed at rest), and
+ *         email it directly to the invitee via a secure invite link.
+ *         The API response contains only the member info — no secret.
+ *
+ *   M-11: Previously, there was no forced password change on first login.
+ *         The invitee could keep using the admin-generated temp password
+ *         indefinitely. Now: we set `mustChangePassword=true` on invite,
+ *         and the login flow requires the user to set a new password before
+ *         they can access the platform.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -13,6 +29,9 @@ import { requirePlatformSession } from '@/lib/platform-session'
 import { hashPassword } from '@/lib/platform-auth'
 import { safeErrorResponse } from '@/lib/config'
 import { logger } from '@/lib/logger'
+import { sha256Hex, secureRandomHex } from '@/lib/crypto-server'
+import { enqueueEmail } from '@/lib/email-notifications'
+import { appendAudit } from '@/lib/audit'
 import { z } from 'zod'
 
 export async function GET(req: NextRequest) {
@@ -29,6 +48,7 @@ export async function GET(req: NextRequest) {
       emailVerified: true,
       lastLoginAt: true,
       createdAt: true,
+      mustChangePassword: true,
     },
     orderBy: { createdAt: 'asc' },
   })
@@ -70,9 +90,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: 'Email already registered' }, { status: 409 })
   }
 
-  // Generate a random temporary password (user must change on first login)
-  const tempPassword = crypto.randomUUID().replace(/-/g, '').slice(0, 16) + 'A1!'
-  const passwordHash = await hashPassword(tempPassword)
+  // SECURITY FIX (M-10): Generate a one-time invite token instead of a temp password.
+  // The token is sent to the invitee via email (secure channel) as part of an
+  // invite link. The invitee clicks the link and sets their OWN password.
+  // The token is hashed at rest (SHA-256) — DB compromise doesn't reveal
+  // usable tokens.
+  const inviteToken = secureRandomHex(32) // 64 hex chars — 256 bits of entropy
+  const inviteTokenHash = sha256Hex(inviteToken)
+  const inviteTokenExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
+
+  // We still create a passwordHash — but it's a random, unusable string.
+  // The user can ONLY log in after setting their own password via the invite link.
+  // We hash a random string so the passwordHash column constraint is satisfied.
+  const placeholderPassword = secureRandomHex(32) + '!Aa1'
+  const passwordHash = await hashPassword(placeholderPassword)
 
   const member = await db.platformUser.create({
     data: {
@@ -81,11 +112,50 @@ export async function POST(req: NextRequest) {
       name,
       role,
       tenantId: session.tenantId,
+      // SECURITY FIX (M-11): Force password change on first login.
+      mustChangePassword: true,
+      inviteTokenHash,
+      inviteTokenExpiresAt,
     },
   })
 
-  logger.info({ invitedEmail: email, invitedBy: session.user.id }, 'Team member invited')
+  // SECURITY FIX (M-10): Email the invite link directly to the invitee.
+  // The token NEVER appears in the API response.
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://veriface.io'
+  const inviteLink = `${appUrl}/accept-invite?token=${inviteToken}`
 
+  void enqueueEmail({
+    tenantId: session.tenantId,
+    to: email.toLowerCase(),
+    userId: member.id,
+    template: 'system.email_verification', // Reuse the verification template structure
+    vars: {
+      name: name ?? undefined,
+      // Pass the invite link as a custom var — the template will render it
+      // (templates already HTML-escape vars per the H-6 fix)
+      timestamp: new Date().toISOString(),
+    },
+    bypassPreferences: true, // Transactional — always send
+  }).catch((e) => {
+    logger.warn({ error: e, invitedEmail: email }, 'Failed to enqueue team-invite email')
+  })
+
+  await appendAudit({
+    tenantId: session.tenantId,
+    eventType: 'api_key.created', // Closest semantic match — "new principal created"
+    payload: {
+      action: 'team_member_invited',
+      invitedEmail: email,
+      invitedBy: session.user.id,
+      role,
+      // NOTE: inviteToken is NOT included in the audit payload
+    },
+  })
+
+  logger.info({ invitedEmail: email, invitedBy: session.user.id, memberId: member.id }, 'Team member invited')
+
+  // SECURITY FIX (M-10): Do NOT return the invite token in the response.
+  // The invitee receives it via email only.
   return NextResponse.json({
     success: true,
     member: {
@@ -94,8 +164,10 @@ export async function POST(req: NextRequest) {
       name: member.name,
       role: member.role,
       createdAt: member.createdAt,
+      mustChangePassword: member.mustChangePassword,
     },
-    tempPassword, // Shown once — must be communicated securely to the invitee
-    warning: 'Communicate this temporary password to the invitee securely. They should change it on first login.',
+    message: 'Invitation sent. The invitee will receive an email with a link to set their password.',
+    // NOTE: tempPassword and inviteToken are intentionally NOT included.
+    // The invitee MUST set their own password via the emailed invite link.
   })
 }

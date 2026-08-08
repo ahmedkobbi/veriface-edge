@@ -59,7 +59,15 @@ export async function PUT(req: NextRequest) {
     const newHash = await hashPassword(validation.data.newPassword)
     await db.platformUser.update({
       where: { id: session.user.id },
-      data: { passwordHash: newHash },
+      data: {
+        passwordHash: newHash,
+        // SECURITY FIX (M-11): Clear the mustChangePassword flag once the
+        // user has set their own password.
+        mustChangePassword: false,
+        // SECURITY FIX (M-10): Clear the invite token (no longer needed)
+        inviteTokenHash: null,
+        inviteTokenExpiresAt: null,
+      },
     })
 
     await appendAudit({

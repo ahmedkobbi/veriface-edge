@@ -13,7 +13,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { initSession, isSessionConsumed } from '@/lib/session'
+import { initSession } from '@/lib/session'
 import { requireApiKey } from '@/lib/auth'
 import { validateInput, SessionInitSchema } from '@/lib/validation'
 import { logger } from '@/lib/logger'
