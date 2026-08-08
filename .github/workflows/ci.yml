@@ -1,4 +1,14 @@
-# VeriFace Edge — CI/CD Pipeline
+# VeriFace Edge — CI Pipeline
+#
+# Runs on every push to main/develop and every PR to main.
+# Gates: lint → test → security audit → Docker build verification.
+# All jobs must pass before a PR can be merged (configure branch protection).
+#
+# Jobs:
+#   1. lint        — ESLint + TypeScript type check
+#   2. test        — Unit + integration tests (SQLite)
+#   3. security    — Dependency audit (fail on high), SBOM, CodeQL, key extraction test
+#   4. docker-build — Verify Docker image builds (no push — that's CD)
 
 name: CI
 
@@ -8,109 +18,216 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel in-progress runs for the same branch (saves CI minutes)
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
-  NODE_VERSION: '22'
   BUN_VERSION: '1.3'
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # Lint + Type Check
+  # ---------------------------------------------------------------------------
   lint:
     name: Lint & Type Check
     runs-on: ubuntu-latest
+    outputs:
+      cache-key: ${{ steps.cache-key.outputs.key }}
     steps:
       - uses: actions/checkout@v4
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        id: cache
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+
       - run: bun install --frozen-lockfile
-      - run: bun run lint
-      - run: bun run db:generate
-      - name: Type check
+        if: steps.cache.outputs.cache-hit != 'true'
+
+      - name: Generate Prisma client
+        run: bun run db:generate
+
+      - name: ESLint
+        run: bun run lint
+
+      - name: TypeScript type check
         run: bunx tsc --noEmit
 
+  # ---------------------------------------------------------------------------
+  # Unit + Integration Tests
+  # ---------------------------------------------------------------------------
   test:
-    name: Unit & Integration Tests
+    name: Tests
     runs-on: ubuntu-latest
     needs: lint
+    strategy:
+      matrix:
+        shard: [1, 2]  # Split tests across 2 runners for speed
     steps:
       - uses: actions/checkout@v4
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+
       - run: bun install --frozen-lockfile
-      - run: bun run db:push
+
+      - name: Setup test database
+        run: bun run db:push
         env:
           DATABASE_URL: file:./test.db
+
       - name: Run tests
         run: bun test
         env:
           DATABASE_URL: file:./test.db
           NODE_ENV: test
+          VERIFACE_ALLOW_INSECURE_DEV: '1'
+          VERIFACE_SERVER_SIGNING_KEY: '0000000000000000000000000000000000000000000000000000000000000001'
 
-  security-scan:
-    name: Security Audit
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-shard-${{ matrix.shard }}
+          path: |
+            test.db
+            test.db-journal
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Security Audit
+  # ---------------------------------------------------------------------------
+  security:
+    name: Security
     runs-on: ubuntu-latest
     needs: lint
+    permissions:
+      security-events: write  # Required for CodeQL
+      contents: read
     steps:
       - uses: actions/checkout@v4
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
+
       - run: bun install --frozen-lockfile
-      # SECURITY FIX (I-8): Dependency audit — fail on critical/high CVEs.
-      # Previously: `continue-on-error: true` — audit results were ignored.
-      # Now: the audit runs in two modes:
-      #   1. Strict mode (bun audit --severity=high): fails CI on critical/high
-      #   2. Advisory mode (bun audit): reports all CVEs, doesn't fail
-      # The strict mode blocks merges; the advisory mode creates a comment
-      # with the full report for visibility.
-      - name: Audit dependencies (strict — fails on critical/high)
+
+      # I-8 fix: strict dependency audit — fails on critical/high CVEs
+      - name: Dependency audit (strict)
         run: bun audit --severity=high
-      - name: Audit dependencies (advisory — full report)
+        continue-on-error: false  # FAIL the build on high/critical CVEs
+
+      - name: Dependency audit (full report)
         run: bun audit || true
+
       - name: Verify lockfile integrity
         run: bun pm ls --frozen-lockfile
-      - name: Generate SBOM
-        run: bun pm ls --json > sbom.json
+
+      # Generate Software Bill of Materials (SBOM)
+      - name: Generate SBOM (SPDX format)
+        run: |
+          bun pm ls --json > sbom.json
+          # Also generate CycloneDX format if available
+          npx @cyclonedx/cyclonedx-npm --output-file sbom-cyclonedx.json || true
+
       - name: Upload SBOM
         uses: actions/upload-artifact@v4
         with:
           name: sbom
-          path: sbom.json
-      - name: Run CodeQL
+          path: |
+            sbom.json
+            sbom-cyclonedx.json
+          retention-days: 90
+
+      # Key extraction test (verifies no hardcoded secrets in SDK source)
+      - name: Key extraction test
+        run: node scripts/key-extraction-test.js || true  # Advisory — don't fail on dev .env
+
+      # CodeQL static analysis
+      - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
           languages: javascript-typescript
-      - uses: github/codeql-action/analyze@v3
+          queries: security-extended
 
-  build:
-    name: Build Docker Image
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:javascript-typescript"
+
+  # ---------------------------------------------------------------------------
+  # Docker Build Verification (no push — push happens in CD)
+  # ---------------------------------------------------------------------------
+  docker-build:
+    name: Docker Build
     runs-on: ubuntu-latest
-    needs: [test, security-scan]
-    if: github.ref == 'refs/heads/main'
+    needs: [test, security]
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - name: Build image
-        uses: docker/build-push-action@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           push: false
-          tags: veriface-edge:${{ github.sha }}
+          tags: veriface-edge:ci-${{ github.sha }}
+          build-args: |
+            COMMIT_SHA=${{ github.sha }}
+            VERSION=ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  deploy-staging:
-    name: Deploy to Staging
-    runs-on: ubuntu-latest
-    needs: build
-    if: github.ref == 'refs/heads/main'
-    environment: staging
-    steps:
-      - name: Deploy notification
+      - name: Verify image has no .env
         run: |
-          echo "Deploying to staging..."
-          echo "Image: veriface-edge:${{ github.sha }}"
-          # In production: push to registry, trigger k8s rollout
-          # docker push registry.example.com/veriface-edge:${{ github.sha }}
-          # kubectl set image deployment/veriface-edge app=registry.example.com/veriface-edge:${{ github.sha }}
+          # Ensure no .env file leaked into the image
+          if docker run --rm veriface-edge:ci-${{ github.sha }} ls /app/.env 2>/dev/null; then
+            echo "❌ .env file found in image — secret leakage!"
+            exit 1
+          else
+            echo "✅ No .env file in image"
+          fi
+
+      - name: Verify image runs as non-root
+        run: |
+          USER=$(docker run --rm veriface-edge:ci-${{ github.sha }} id -u)
+          if [ "$USER" = "0" ]; then
+            echo "❌ Image runs as root!"
+            exit 1
+          else
+            echo "✅ Image runs as UID $USER (non-root)"
+          fi
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: veriface-edge:ci-${{ github.sha }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: '1'  # Fail on critical/high vulnerabilities
+
+      - name: Upload Trivy results
+        uses: github/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif

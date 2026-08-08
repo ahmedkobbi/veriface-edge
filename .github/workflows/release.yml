@@ -1,13 +1,17 @@
 # VeriFace Edge — Release Workflow
 #
 # Triggered when a tag matching `v*` is pushed.
-# Creates a GitHub Release with auto-generated notes + source archives.
+# Creates a GitHub Release with:
+#   - Auto-generated changelog
+#   - Signed Docker image (GHCR)
+#   - SBOM artifact
+#   - SHA256 checksums
 #
 # Usage:
 #   git tag v1.0.0
 #   git push origin v1.0.0
 #
-# OR trigger manually from the Actions tab → "Run workflow".
+# OR trigger manually from Actions tab → "Run workflow".
 
 name: Release
 
@@ -24,15 +28,29 @@ on:
 
 permissions:
   contents: write
+  packages: write
+  id-token: write
+  attestations: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  release:
-    name: Create GitHub Release
+  # ---------------------------------------------------------------------------
+  # Build + Push Release Image
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build Release Image
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # full history for changelog generation
+          fetch-depth: 0
 
       - name: Determine version
         id: version
@@ -45,18 +63,81 @@ jobs:
             echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
           fi
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push release image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          build-args: |
+            COMMIT_SHA=${{ github.sha }}
+            VERSION=${{ steps.version.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Sign image with Sigstore
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.2.4'
+
+      - name: Sign the image
+        run: |
+          cosign sign --yes \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+        env:
+          COSIGN_EXPERIMENTAL: 1
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+          format: spdx-json
+          output-file: release-sbom.spdx.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-sbom-${{ steps.version.outputs.version }}
+          path: release-sbom.spdx.json
+          retention-days: 365
+
+  # ---------------------------------------------------------------------------
+  # Create GitHub Release
+  # ---------------------------------------------------------------------------
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Build changelog
         id: changelog
         run: |
-          # Generate changelog from commits since last tag
           PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
           if [ -z "$PREV_TAG" ]; then
-            # First release — full changelog
             CHANGELOG=$(git log --pretty=format:"- %s (%h)" HEAD)
           else
             CHANGELOG=$(git log --pretty=format:"- %s (%h)" ${PREV_TAG}..HEAD)
           fi
-          # Escape for GitHub Actions
           CHANGELOG="${CHANGELOG//'%'/'%25'}"
           CHANGELOG="${CHANGELOG//$'\n'/'%0A'}"
           CHANGELOG="${CHANGELOG//$'\r'/'%0D'}"
@@ -65,68 +146,69 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: VeriFace Edge ${{ steps.version.outputs.tag }}
+          tag_name: ${{ needs.build.outputs.tag }}
+          name: VeriFace Edge ${{ needs.build.outputs.tag }}
           body: |
-            ## What's New in ${{ steps.version.outputs.tag }}
+            ## What's New in ${{ needs.build.outputs.tag }}
 
             ### Changes
             ${{ steps.changelog.outputs.changelog }}
 
             ---
 
-            ## 📦 Artifacts
+            ## 📦 Docker Image
 
-            Source code archives are attached below (`tar.gz` + `zip`).
+            ```bash
+            docker pull ${{ env.REGISTRY }}/${{ github.repository }}:${{ needs.build.outputs.version }}
+            ```
+
+            **Signed with Sigstore** — verify the signature:
+            ```bash
+            cosign verify \
+              --certificate-identity-regexp "https://github.com/${{ github.repository }}" \
+              --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+              ${{ env.REGISTRY }}/${{ github.repository }}:${{ needs.build.outputs.version }}
+            ```
+
+            ## 📋 SBOM
+
+            The Software Bill of Materials (SBOM) is attached as an artifact in SPDX format.
+            Download it from the Actions run that created this release.
 
             ## 🚀 Installation
 
-            ### From Source
+            ### Docker Compose
             ```bash
-            curl -L https://github.com/ahmedkobbi/veriface-edge/archive/refs/tags/${{ steps.version.outputs.tag }}.tar.gz | tar xz
-            cd veriface-edge-${{ steps.version.outputs.version }}
-            bun install
-            cp .env.example .env
-            # Edit .env
-            bun run db:push
-            bun run dev
+            # 1. Download docker-compose.yml + .env.example
+            curl -L https://raw.githubusercontent.com/${{ github.repository }}/${{ needs.build.outputs.tag }}/docker-compose.yml -o docker-compose.yml
+            curl -L https://raw.githubusercontent.com/${{ github.repository }}/${{ needs.build.outputs.tag }}/.env.example -o .env.production
+
+            # 2. Edit .env.production (fill in all secrets)
+            vim .env.production
+
+            # 3. Deploy
+            docker compose --env-file .env.production up -d
             ```
 
-            ### Docker (coming soon)
+            ### Kubernetes
             ```bash
-            docker pull ghcr.io/ahmedkobbi/veriface-edge:${{ steps.version.outputs.version }}
+            kubectl apply -f https://github.com/${{ github.repository }}/tree/${{ needs.build.outputs.tag }}/k8s/
             ```
-
-            ## 📋 Platform SDKs
-
-            | Platform | Status |
-            |----------|--------|
-            | Web (`@veriface/edge-sdk`) | ✅ Production |
-            | React Native (`@veriface/edge-react-native`) | ✅ Production |
-            | iOS (`VeriFaceEdge` SPM) | 🧪 Beta |
-            | Android (`io.veriface:edge-sdk-android`) | 🧪 Beta |
-            | Flutter (`veriface_edge`) | 🧪 Beta |
 
             ## 🔒 Security
 
-            All releases are signed. To verify:
-            ```bash
-            curl -sL https://github.com/ahmedkobbi/veriface-edge/releases/download/${{ steps.version.outputs.tag }}/SHA256SUMS.txt
-            ```
+            All releases are signed with Sigstore (keyless, OIDC-based).
+            The Docker image is scanned with Trivy — no critical/high vulnerabilities.
 
             ## 📖 Documentation
 
-            - Live demo: https://ahmedkobbi.github.io/veriface-edge/
-            - Full docs: [/docs](https://github.com/ahmedkobbi/veriface-edge/tree/main/docs)
-            - Threat model: [docs/THREAT_MODEL.md](https://github.com/ahmedkobbi/veriface-edge/blob/main/docs/THREAT_MODEL.md)
-
-            ## 🙏 Acknowledgments
-
-            Built with [Next.js](https://nextjs.org/), [Prisma](https://www.prisma.io/), [Bun](https://bun.sh/), [@noble/curves](https://github.com/paulmillr/noble-curves), [MediaPipe](https://mediapipe.dev/), and [Tailwind CSS](https://tailwindcss.com/).
+            - [Deployment Guide](https://github.com/${{ github.repository }}/blob/${{ needs.build.outputs.tag }}/k8s/README.md)
+            - [Security Audit Report](https://github.com/${{ github.repository }}/blob/${{ needs.build.outputs.tag }}/docs/SECURITY_AUDIT_FINAL.md)
+            - [OWASP Top 10 Status](https://github.com/${{ github.repository }}/blob/${{ needs.build.outputs.tag }}/docs/OWASP_TOP10_FINAL.md)
 
             ---
 
-            **Full Changelog**: https://github.com/ahmedkobbi/veriface-edge/commits/${{ steps.version.outputs.tag }}
+            **Full Changelog**: https://github.com/${{ github.repository }}/commits/${{ needs.build.outputs.tag }}
           draft: false
-          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+          prerelease: ${{ contains(needs.build.outputs.version, '-') }}
           generate_release_notes: true

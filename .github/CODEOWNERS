@@ -1,0 +1,65 @@
+# VeriFace Edge — Code Owners
+#
+# Enforces review requirements on security-critical files.
+# Configure in GitHub: Settings → Branches → main → Require review from Code Owners.
+
+# Default: require review from the repo owner
+*                           @ahmedkobbi
+
+# Security-critical crypto + auth files
+/src/lib/crypto-server.ts   @ahmedkobbi
+/src/lib/auth.ts            @ahmedkobbi
+/src/lib/audit.ts           @ahmedkobbi
+/src/lib/billing.ts         @ahmedkobbi
+/src/lib/session.ts         @ahmedkobbi
+/src/lib/tenant.ts          @ahmedkobbi
+/src/lib/platform-auth.ts   @ahmedkobbi
+/src/lib/platform-session.ts @ahmedkobbi
+/src/lib/csrf.ts            @ahmedkobbi
+/src/lib/request-signing.ts @ahmedkobbi
+/src/lib/field-encryption.ts @ahmedkobbi
+/src/lib/client-ip.ts       @ahmedkobbi
+/src/lib/saml-relay-state.ts @ahmedkobbi
+/src/lib/webauthn.ts        @ahmedkobbi
+/src/lib/totp.ts            @ahmedkobbi
+/src/lib/ssrf.ts            @ahmedkobbi
+/src/lib/fips/              @ahmedkobbi
+/src/lib/post-quantum-server.ts @ahmedkobbi
+
+# Auth + webhook API routes
+/src/app/api/auth/          @ahmedkobbi
+/src/app/api/session/       @ahmedkobbi
+/src/app/api/billing/       @ahmedkobbi
+/src/app/api/admin/         @ahmedkobbi
+/src/app/api/token/         @ahmedkobbi
+/src/app/api/consent/       @ahmedkobbi
+/src/app/oauth/             @ahmedkobbi
+/src/app/api/saml/          @ahmedkobbi
+
+# Security middleware
+/src/middleware.ts          @ahmedkobbi
+
+# Infrastructure
+/Dockerfile                 @ahmedkobbi
+/docker-compose.yml         @ahmedkobbi
+/docker-entrypoint.sh       @ahmedkobbi
+/nginx.conf                 @ahmedkobbi
+/Caddyfile                  @ahmedkobbi
+/k8s/                       @ahmedkobbi
+
+# CI/CD
+/.github/workflows/         @ahmedkobbi
+
+# Database schema
+/prisma/schema.prisma       @ahmedkobbi
+
+# SDK crypto (security-critical)
+/src/sdk/crypto.ts          @ahmedkobbi
+/src/sdk/veriface.ts        @ahmedkobbi
+/src/sdk/ios/Sources/VeriFaceEdge/VeriFaceCrypto.swift @ahmedkobbi
+/src/sdk/android/library/src/main/kotlin/io/veriface/sdk/crypto/ @ahmedkobbi
+/src/sdk/flutter/lib/src/crypto/ @ahmedkobbi
+
+# Validation
+/src/lib/validation.ts      @ahmedkobbi
+/src/lib/body-limits.ts     @ahmedkobbi

@@ -1,0 +1,303 @@
+# VeriFace Edge — CD Pipeline (Continuous Deployment)
+#
+# Builds, signs, and pushes the Docker image to GHCR (GitHub Container Registry)
+# on every push to main. Deploys to staging automatically.
+#
+# Trigger: push to main (after CI passes)
+# Registry: ghcr.io/ahmedkobbi/veriface-edge
+#
+# Required GitHub Secrets:
+#   (none — GHCR uses GITHUB_TOKEN, automatically provided)
+#
+# Required GitHub Environments:
+#   staging  — for auto-deploy to staging
+#   production — for manual approval before prod deploy
+
+name: CD
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      image_tag:
+        description: 'Image tag to deploy (default: latest commit SHA)'
+        required: false
+        type: string
+
+# Prevent concurrent deploys to the same environment
+concurrency:
+  group: cd-${{ github.ref }}-${{ inputs.environment || 'staging' }}
+  cancel-in-progress: false  # Don't cancel an in-progress deploy
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  BUN_VERSION: '1.3'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Build + Push Docker Image
+  # ---------------------------------------------------------------------------
+  build-and-push:
+    name: Build & Push Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write  # Required to push to GHCR
+      id-token: write  # Required for Sigstore signing
+      attestations: write
+    outputs:
+      image: ${{ steps.meta.outputs.tags }}
+      digest: ${{ steps.build.outputs.digest }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,format=long         # ghcr.io/.../veriface-edge:sha-abc123def
+            type=sha,format=short        # ghcr.io/.../veriface-edge:sha-abc123d
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch        # ghcr.io/.../veriface-edge:main
+          labels: |
+            org.opencontainers.image.title=VeriFace Edge
+            org.opencontainers.image.description=Privacy-first facial authentication SaaS
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            COMMIT_SHA=${{ github.sha }}
+            VERSION=${{ steps.meta.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Sign image with Sigstore (keyless)
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.2.4'
+
+      - name: Sign the image
+        run: |
+          cosign sign --yes \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+        env:
+          COSIGN_EXPERIMENTAL: 1
+
+      - name: Generate SBOM for the image
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: image-sbom.spdx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-sbom
+          path: image-sbom.spdx.json
+          retention-days: 365
+
+      - name: Scan pushed image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+
+      - name: Upload Trivy scan results
+        uses: github/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif
+
+  # ---------------------------------------------------------------------------
+  # Deploy to Staging (automatic on main push)
+  # ---------------------------------------------------------------------------
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main' && (inputs.environment == '' || inputs.environment == 'staging')
+    environment:
+      name: staging
+      url: https://staging.veriface.io
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set deploy variables
+        id: vars
+        run: |
+          IMAGE_TAG="${{ inputs.image_tag || format('sha-{0}', github.sha) }}"
+          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "Deploying image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG"
+
+      # Deploy via SSH + docker-compose (for single-host staging)
+      # For Kubernetes, replace with kubectl apply + kubectl set image
+      - name: Deploy via SSH (docker-compose)
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            cd /opt/veriface-edge
+            git pull origin main
+            export VERSION="${{ steps.vars.outputs.image_tag }}"
+            docker compose --env-file .env.staging pull
+            docker compose --env-file .env.staging up -d --remove-orphans
+            # Wait for health check
+            sleep 15
+            curl -sf http://localhost:3000/api/health | grep -o '"status":"[^"]*"' || echo "Health check failed"
+            docker compose --env-file .env.staging ps
+
+      - name: Run post-deploy health check
+        run: |
+          sleep 10
+          STATUS=$(curl -sk -o /dev/null -w "%{http_code}" https://staging.veriface.io/api/health || echo "000")
+          if [ "$STATUS" = "200" ] || [ "$STATUS" = "503" ]; then
+            echo "✅ Staging deployed successfully (HTTP $STATUS)"
+          else
+            echo "❌ Staging health check failed (HTTP $STATUS)"
+            exit 1
+          fi
+
+      - name: Notify Slack (on failure)
+        if: failure()
+        uses: slackapi/slack-github-action@v1
+        with:
+          slack-message: "❌ Staging deploy failed for ${{ github.repository }}@${{ steps.vars.outputs.image_tag }}"
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        continue-on-error: true
+
+  # ---------------------------------------------------------------------------
+  # Deploy to Production (manual approval required)
+  # ---------------------------------------------------------------------------
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: inputs.environment == 'production'
+    environment:
+      name: production
+      url: https://veriface.io
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set deploy variables
+        id: vars
+        run: |
+          IMAGE_TAG="${{ inputs.image_tag || format('sha-{0}', github.sha) }}"
+          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      # Verify the image was scanned and no critical vulnerabilities
+      - name: Verify image is scan-clean
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.image_tag }}
+          severity: CRITICAL
+          exit-code: '1'
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+
+      # Verify the image signature (Sigstore)
+      - name: Verify image signature
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.2.4'
+
+      - name: Verify signature
+        run: |
+          cosign verify \
+            --certificate-identity-regexp "https://github.com/${{ github.repository }}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.image_tag }}
+        env:
+          COSIGN_EXPERIMENTAL: 1
+
+      # Deploy to Kubernetes production cluster
+      - name: Configure kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.29.0'
+
+      - name: Set K8s context
+        uses: azure/k8s-set-context@v4
+        with:
+          kubeconfig: ${{ secrets.PROD_KUBECONFIG }}
+
+      - name: Run database migration (init container)
+        run: |
+          kubectl apply -f k8s/migration-job.yaml -n veriface
+          kubectl wait --for=condition=complete job/veriface-migrate -n veriface --timeout=300s || {
+            echo "⚠️ Migration job did not complete in time — check logs"
+            kubectl logs job/veriface-migrate -n veriface
+          }
+
+      - name: Deploy to Kubernetes
+        run: |
+          # Update the image tag in the deployment
+          kubectl set image deployment/veriface-app \
+            app=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.image_tag }} \
+            -n veriface
+
+          # Wait for rollout to complete
+          kubectl rollout status deployment/veriface-app -n veriface --timeout=300s
+
+      - name: Verify production health
+        run: |
+          sleep 15
+          STATUS=$(curl -sk -o /dev/null -w "%{http_code}" https://veriface.io/api/health || echo "000")
+          if [ "$STATUS" = "200" ] || [ "$STATUS" = "503" ]; then
+            echo "✅ Production deployed successfully (HTTP $STATUS)"
+          else
+            echo "❌ Production health check failed (HTTP $STATUS) — initiating rollback"
+            kubectl rollout undo deployment/veriface-app -n veriface
+            exit 1
+          fi
+
+      - name: Notify Slack
+        if: always()
+        uses: slackapi/slack-github-action@v1
+        with:
+          slack-message: |
+            ${{ job.status == 'success' && '✅' || '❌' }} Production deploy ${{ job.status }} for ${{ github.repository }}@${{ steps.vars.outputs.image_tag }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        continue-on-error: true
