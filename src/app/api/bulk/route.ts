@@ -24,6 +24,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { db } from '@/lib/db'
 import { requireApiKey } from '@/lib/auth'
 import { revokeTemplate } from '@/lib/tenant'
 import { appendAudit } from '@/lib/audit'
@@ -61,6 +62,9 @@ export async function POST(req: NextRequest) {
 
   // FIX (H5): In atomic mode, wrap all operations in a single transaction.
   // If any operation fails, the entire transaction rolls back.
+  // SECURITY FIX (bulk-test-fix): Pass `tx` to appendAudit so it participates
+  // in this transaction instead of opening a nested one (which causes
+  // "Transaction already closed" on SQLite under concurrency).
   if (atomic) {
     try {
       await db.$transaction(async (tx) => {
@@ -74,18 +78,20 @@ export async function POST(req: NextRequest) {
                 eventType: 'template.revoked',
                 payload: { externalUserId: op.externalUserId, bulk: true, deleted: true },
                 apiKeyId: authResult.auth.apiKeyId,
-              })
+              }, tx)  // ← pass tx to avoid nested transaction
             } else if (op.type === 'consent') {
               await appendAudit({
                 tenantId,
                 eventType: 'consent.recorded',
                 payload: { externalUserId: op.externalUserId, purpose: op.purpose, granted: op.granted, bulk: true },
                 apiKeyId: authResult.auth.apiKeyId,
-              })
+              }, tx)  // ← pass tx to avoid nested transaction
             }
           } catch (e) {
             // Throwing inside $transaction rolls back ALL changes
-            throw new Error(`Operation ${i} failed: ${safeErrorResponse(e).error}`)
+            const errMsg = e instanceof Error ? e.message : String(e)
+            logger.error({ error: e, operationIndex: i, operationType: op.type }, `Bulk operation ${i} failed: ${errMsg}`)
+            throw new Error(`Operation ${i} failed: ${errMsg}`)
           }
         }
       })
@@ -98,6 +104,8 @@ export async function POST(req: NextRequest) {
         summary: { total: operations.length, succeeded: operations.length, failed: 0 },
       }, { headers: authResult.rateLimitHeaders })
     } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e)
+      logger.error({ error: errMsg, stack: e instanceof Error ? e.stack : undefined }, 'Bulk atomic transaction failed')
       return NextResponse.json({
         success: false,
         error: 'Atomic operation failed — all changes rolled back',

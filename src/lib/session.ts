@@ -184,11 +184,20 @@ export async function initSession(opts: {
     activeSessions.delete(session.id)
   }, ttl * 1000).unref?.()
 
-  await appendAudit({
+  // SECURITY FIX (load-test): Fire audit log asynchronously (fire-and-forget)
+  // for session.init — this is a non-critical audit event that doesn't need
+  // to block the response. The audit entry will be written shortly after
+  // the response is sent. This prevents SQLite write-lock contention under
+  // concurrent load (SQLite is single-writer — holding the lock for audit
+  // serialization blocks all other requests).
+  // In production with PostgreSQL, this can be changed back to `await`.
+  void appendAudit({
     tenantId: opts.tenantId,
     eventType: 'session.init',
     payload: { sessionId: session.id, flow: opts.flow },
     actorIp: opts.clientIp,
+  }).catch((e) => {
+    logger.warn({ error: e, sessionId: session.id }, 'Failed to append session.init audit (non-blocking)')
   })
 
   return {

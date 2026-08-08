@@ -211,75 +211,33 @@ function redactPii(payload: Record<string, unknown>): Record<string, unknown> {
   return redacted
 }
 
-export async function appendAudit(event: AuditEvent): Promise<{
+export async function appendAudit(event: AuditEvent, tx?: any): Promise<{
   id: string
   chainIndex: number
   thisHash: string
 }> {
   // SECURITY FIX (M-4): Redact PII before persisting to the audit log.
-  // The audit log is retained for 7 years — plaintext PII would be a
-  // goldmine for an attacker with DB access.
   const redactedPayload = redactPii(event.payload)
   const payloadStr = JSON.stringify(redactedPayload)
   const MAX_RETRIES = 3
 
+  // If a transaction client is provided, use it directly (no nested transaction).
+  // This prevents the "Transaction already closed" error when appendAudit is called
+  // from within another db.$transaction (e.g., bulk operations, session init).
+  if (tx) {
+    return await appendAuditInTransaction(event, redactedPayload, payloadStr, tx)
+  }
+
   // FIX (H8): Use a transaction with retry on unique constraint violation.
-  // The @@unique([tenantId, chainIndex]) constraint prevents two concurrent
-  // writes from getting the same chainIndex. On collision, retry.
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
-      return await db.$transaction(async (tx) => {
-        // Fetch the latest entry for this tenant INSIDE the transaction
-        const latest = await tx.auditLog.findFirst({
-          where: { tenantId: event.tenantId },
-          orderBy: { chainIndex: 'desc' },
-        })
-
-        const prevHash = latest?.thisHash ?? GENESIS_HASH
-        const chainIndex = (latest?.chainIndex ?? -1) + 1
-
-        // Create entry with placeholder hash
-        const entry = await tx.auditLog.create({
-          data: {
-            tenantId: event.tenantId,
-            eventType: event.eventType,
-            payload: payloadStr,
-            prevHash,
-            thisHash: 'pending',
-            chainIndex,
-            actorIp: event.actorIp,
-            apiKeyId: event.apiKeyId,
-          },
-        })
-
-        // Compute thisHash using the actual createdAt from Prisma
-        const ts = entry.createdAt.toISOString()
-        const chainInput =
-          prevHash + '|' + event.eventType + '|' + payloadStr + '|' + ts + '|' + event.tenantId
-        const thisHash = sha256Hex(chainInput)
-
-        // Update with real hash
-        await tx.auditLog.update({
-          where: { id: entry.id },
-          data: { thisHash },
-        })
-
-        // Broadcast to SSE/WS subscribers (real-time SIEM streaming)
-        // SECURITY FIX (M-4): Broadcast the REDACTED payload, not the raw one.
-        broadcastAuditEntry({
-          tenantId: event.tenantId,
-          eventType: event.eventType,
-          payload: redactedPayload,
-          chainIndex,
-          thisHash,
-          actorIp: event.actorIp,
-          createdAt: entry.createdAt,
-        })
-
-        return { id: entry.id, chainIndex, thisHash }
+      return await db.$transaction(async (txInner) => {
+        return await appendAuditInTransaction(event, redactedPayload, payloadStr, txInner)
+      }, {
+        timeout: 10_000, // 10 seconds — default is 5s, increase for SQLite
+        maxWait: 15_000, // Max time to wait for a transaction slot
       })
     } catch (e: any) {
-      // Retry on unique constraint violation (P2002)
       if (e?.code === 'P2002' && attempt < MAX_RETRIES - 1) {
         continue
       }
@@ -287,6 +245,66 @@ export async function appendAudit(event: AuditEvent): Promise<{
     }
   }
   throw new Error('appendAudit: max retries exceeded')
+}
+
+/**
+ * Internal: append audit entry within an existing transaction.
+ * Used by both appendAudit (standalone) and callers with their own tx.
+ */
+async function appendAuditInTransaction(
+  event: AuditEvent,
+  redactedPayload: Record<string, unknown>,
+  payloadStr: string,
+  tx: any,
+): Promise<{ id: string; chainIndex: number; thisHash: string }> {
+  // Fetch the latest entry for this tenant INSIDE the transaction
+  const latest = await tx.auditLog.findFirst({
+    where: { tenantId: event.tenantId },
+    orderBy: { chainIndex: 'desc' },
+  })
+
+  const prevHash = latest?.thisHash ?? GENESIS_HASH
+  const chainIndex = (latest?.chainIndex ?? -1) + 1
+
+  // Create entry with placeholder hash
+  const entry = await tx.auditLog.create({
+    data: {
+      tenantId: event.tenantId,
+      eventType: event.eventType,
+      payload: payloadStr,
+      prevHash,
+      thisHash: 'pending',
+      chainIndex,
+      actorIp: event.actorIp,
+      apiKeyId: event.apiKeyId,
+    },
+  })
+
+  // Compute thisHash using the actual createdAt from Prisma
+  const ts = entry.createdAt.toISOString()
+  const chainInput =
+    prevHash + '|' + event.eventType + '|' + payloadStr + '|' + ts + '|' + event.tenantId
+  const thisHash = sha256Hex(chainInput)
+
+  // Update with real hash
+  await tx.auditLog.update({
+    where: { id: entry.id },
+    data: { thisHash },
+  })
+
+  // Broadcast to SSE/WS subscribers (real-time SIEM streaming)
+  // SECURITY FIX (M-4): Broadcast the REDACTED payload, not the raw one.
+  broadcastAuditEntry({
+    tenantId: event.tenantId,
+    eventType: event.eventType,
+    payload: redactedPayload,
+    chainIndex,
+    thisHash,
+    actorIp: event.actorIp,
+    createdAt: entry.createdAt,
+  })
+
+  return { id: entry.id, chainIndex, thisHash }
 }
 
 /**
