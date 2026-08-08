@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'release' || inputs.package == 'both' || inputs.package == 'web-sdk'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -99,7 +99,7 @@ jobs:
     if: github.event_name == 'release' || inputs.package == 'both' || inputs.package == 'react-native-sdk'
     needs: publish-web-sdk
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
