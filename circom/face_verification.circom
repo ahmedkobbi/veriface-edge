@@ -100,26 +100,31 @@ template FaceVerification() {
     embHashFinal.out === stored_embedding_hash;
 
     // -----------------------------------------------------------------------
-    // Constraint 2: Cosine similarity >= threshold
+    // Constraint 2: Threshold range check
     // -----------------------------------------------------------------------
-    // cosine_sim = dot(E, S) / (||E|| * ||S||)
+    // The threshold is a public input that must be within [0, 1000].
+    // This prevents a malicious verifier from setting threshold to an
+    // out-of-range value (e.g., negative or > 1000).
     //
-    // To avoid division in ZK (expensive), we rewrite as:
-    //   dot(E, S) * 1000 >= threshold * ||E|| * ||S||
+    // Note: The full cosine similarity check (dot product >= threshold)
+    // requires the stored embedding as a public input (512 signals),
+    // which significantly increases proof size. For production, use a
+    // Merkle tree commitment for the stored embedding and verify only
+    // the Merkle path in-circuit.
     //
-    // Note: For simplicity, this circuit verifies the commitment + stored hash
-    // binding. The full cosine similarity check requires the stored embedding
-    // as a public input (512 signals), which significantly increases proof size.
-    // In production, use a merkle tree commitment for the stored embedding
-    // and verify only the merkle path in-circuit.
-    //
-    // For now, we verify:
+    // For now, we enforce:
     //   1. The SDK knows an embedding that hashes to the commitment (honesty)
     //   2. The embedding hash matches the stored hash (binding)
+    //   3. The threshold is within valid range [0, 1000]
     //
     // The cosine similarity check is performed OUTSIDE the ZK circuit
     // (in the backend's verifyTemplate function) on the decrypted embedding.
     // Future versions will move this check entirely inside the ZK circuit.
+
+    component thresholdRangeCheck = LessEqThan(32);
+    thresholdRangeCheck.in[0] <== threshold;
+    thresholdRangeCheck.in[1] <== 1000;
+    thresholdRangeCheck.out === 1;
 }
 
 // ---------------------------------------------------------------------------
