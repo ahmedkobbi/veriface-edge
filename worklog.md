@@ -421,3 +421,36 @@ Stage Summary:
 - TypeScript compiles cleanly for all modified files
 - Combined with the previous 12 CRITICAL (C-1 to C-12) and 15 HIGH (H-1 to H-15) fixes, the platform now has 45 of 65 findings resolved (12 CRITICAL + 15 HIGH + 18 MEDIUM)
 - Remaining: 12 LOW + 8 INFO (defense-in-depth recommendations)
+
+---
+Task ID: L-1-to-L-12
+Agent: Super Z (main)
+Task: Fix all 12 LOW vulnerabilities from the black-hat penetration test
+
+Work Log:
+- Read docs/SECURITY_AUDIT_FINAL.md to confirm L-1 through L-12 findings
+- Examined affected code files for each LOW finding
+- Fixed L-1: platform-auth.ts — buildCookieHeader + buildClearCookieHeader use SameSite=Strict (was Lax)
+- Fixed L-2: platform-auth.ts + totp.ts — added iss + aud claims to createSessionToken and createTwoFactorPendingToken; verifySessionToken and verifyTwoFactorPendingToken now validate both claims
+- Fixed L-3: platform-auth.ts — cookie name uses __Host- prefix in production (getCookieName() helper); enforces Secure + Path=/ + no Domain
+- Fixed L-4: audit.ts — expanded AuditEventType from 30 to 50 types (added billing.*, user.*, compliance.*); fixed 18 misused event types across billing.ts (9 fixes), customer/account, 2fa/enable, 2fa/disable, admin/team, admin/team/[id], admin/plan, admin/settings, admin/saml-config, admin/access-policies, admin/branding, admin/regions, admin/usage/plan, cron/access-review
+- Fixed L-5: webhook.ts — BACKOFF_SCHEDULE[attempt] → BACKOFF_SCHEDULE[attempt - 1] with clamp to last valid index (off-by-one fix)
+- Fixed L-6: validation.ts — externalUserId max length 256 → 128; regex disallows leading/trailing dots/dashes
+- Fixed L-7: validation.ts — hexString now has max(8192) (was unbounded); httpsUrl now has max(2048)
+- Fixed L-8: validation.ts — AuditQuerySchema offset → cursor (base64-encoded "chainIndex:createdAt"); queryAuditLog already expected cursor
+- Fixed L-9: audit/export/route.ts — escapeCsvCell now handles null/undefined/Date/object; JSON.parse wrapped in try/catch; all cells go through escapeCsvCell
+- Fixed L-10: redis-cache.ts — replaced separate INCR + EXPIRE with atomic Lua script (EVALSHA with EVAL fallback); no race between count increment and TTL setting
+- Fixed L-11: rate-limit-tiers.ts — getEffectivePerMinuteLimit uses Math.min (was Math.max); admins can now throttle below plan floor for emergencies
+- Fixed L-12: nowpayments/webhook/route.ts — verifies HMAC signature BEFORE JSON.parse; prevents parser DoS on untrusted input
+- Also fixed: auth.ts — rl.remaining → rlRemaining (derived from rl.count); checkCachedRateLimit returns { allowed, count, resetAt } not { allowed, remaining, resetAt }
+- Verified TypeScript compilation: all modified files compile cleanly
+- Updated docs/OWASP_TOP10_STATUS.md with LOW fix details and new summary matrix
+
+Stage Summary:
+- All 12 LOW vulnerabilities (L-1 through L-12) from the penetration test are fixed
+- 24 files modified, 321 insertions, 59 deletions
+- AuditEventType expanded from 30 to 50 types — 18 misused event types corrected
+- TypeScript compiles cleanly for all modified files
+- Combined with previous fixes: 57 of 65 findings resolved (12 CRITICAL + 15 HIGH + 18 MEDIUM + 12 LOW)
+- Remaining: 8 INFO (defense-in-depth, no exploitable risk)
+- OWASP Top 10 status: 9/10 categories PASS, 1/10 MONITORING (INFO-level dependency audit)

@@ -1,21 +1,21 @@
 # VeriFace Edge — OWASP Top 10 (2021) Status Report
 
 **Date:** August 8, 2026
-**Scope:** Post-remediation status after fixing all 12 CRITICAL, 15 HIGH, and 18 MEDIUM findings
-**Commit:** `c6e2bdc` — security: fix all 18 MEDIUM vulnerabilities from penetration test
+**Scope:** Post-remediation status after fixing all 12 CRITICAL, 15 HIGH, 18 MEDIUM, and 12 LOW findings
+**Commit:** `feb40bd` — security: fix all 12 LOW vulnerabilities from penetration test
 
 ---
 
 ## Executive Summary
 
-All 45 actionable findings from the black-hat penetration test (12 CRITICAL + 15 HIGH + 18 MEDIUM) have been remediated. The remaining 20 findings (12 LOW + 8 INFO) are defense-in-depth recommendations scheduled for the next hardening sprint.
+All 57 actionable findings from the black-hat penetration test (12 CRITICAL + 15 HIGH + 18 MEDIUM + 12 LOW) have been remediated. The remaining 8 findings (INFO-level) are defense-in-depth observations that do not represent exploitable vulnerabilities — they are monitoring and hygiene recommendations.
 
 **Remediation scorecard:**
 - CRITICAL: 12/12 fixed (100%)
 - HIGH: 15/15 fixed (100%)
 - MEDIUM: 18/18 fixed (100%)
-- LOW: 0/12 fixed (next sprint)
-- INFO: 0/8 fixed (monitoring only)
+- LOW: 12/12 fixed (100%)
+- INFO: 0/8 fixed (monitoring/hygiene — no exploitable risk)
 
 ---
 
@@ -23,7 +23,7 @@ All 45 actionable findings from the black-hat penetration test (12 CRITICAL + 15
 
 ### A01 — Broken Access Control — ✅ PASS
 
-**Findings addressed:** C-3, C-4, C-5, H-4, M-8, M-9
+**Findings addressed:** C-3, C-4, C-5, H-4, M-8, M-9, L-3
 
 | Finding | Severity | Status | Fix |
 |---------|----------|--------|-----|
@@ -33,6 +33,7 @@ All 45 actionable findings from the black-hat penetration test (12 CRITICAL + 15
 | H-4 | HIGH | ✅ Fixed | Session invalidation on password change (sessionVersion field) |
 | M-8 | MEDIUM | ✅ Fixed | SSE connection limit: 10 per tenant, 1000 global — defeats DoS via connection exhaustion |
 | M-9 | MEDIUM | ✅ Fixed | `expiresInDays` validated: positive integer, 1–365 days — prevents non-expiring keys |
+| L-3 | LOW | ✅ Fixed | `__Host-` cookie prefix in production (enforces Secure + Path=/ + no Domain) |
 
 **Residual risk:** LOW — access control is enforced at the auth middleware, route handler, and database query level (defense in depth).
 
@@ -61,21 +62,24 @@ All 45 actionable findings from the black-hat penetration test (12 CRITICAL + 15
 
 ### A03 — Injection — ✅ PASS
 
-**Findings addressed:** H-5, H-6, M-7
+**Findings addressed:** H-5, H-6, M-7, L-6, L-7, L-9
 
 | Finding | Severity | Status | Fix |
 |---------|----------|--------|-----|
 | H-5 | HIGH | ✅ Fixed | CSP: removed `unsafe-inline` from `script-src`, removed external CDN |
 | H-6 | HIGH | ✅ Fixed | Email template variables HTML-escaped before interpolation |
 | M-7 | MEDIUM | ✅ Fixed | CSP `require-trusted-types-for 'script'` no longer contradicted by `unsafe-inline`; `style-src` strict in production |
+| L-6 | LOW | ✅ Fixed | `externalUserId` max length tightened from 256 to 128; regex disallows leading/trailing dots/dashes |
+| L-7 | LOW | ✅ Fixed | `hexString` schema now has `max(8192)` — prevents unbounded hex input DoS |
+| L-9 | LOW | ✅ Fixed | CSV export handles null/undefined/Date/object explicitly; JSON.parse wrapped in try/catch |
 
-**Residual risk:** NONE — Prisma ORM parameterizes all SQL queries (no SQL injection). HTML injection is blocked via escaping + CSP. No OS command execution.
+**Residual risk:** NONE — Prisma ORM parameterizes all SQL queries (no SQL injection). HTML injection is blocked via escaping + CSP. CSV formula injection blocked. No OS command execution.
 
 ---
 
 ### A04 — Insecure Design — ✅ PASS
 
-**Findings addressed:** C-6, C-8, C-12, H-1, H-2, H-10, H-11, H-12, M-10, M-11
+**Findings addressed:** C-6, C-8, C-12, H-1, H-2, H-10, H-11, H-12, M-10, M-11, L-5, L-8, L-11
 
 | Finding | Severity | Status | Fix |
 |---------|----------|--------|-----|
@@ -89,14 +93,17 @@ All 45 actionable findings from the black-hat penetration test (12 CRITICAL + 15
 | H-12 | HIGH | ✅ Fixed | Monthly usage counter uses atomic `Prisma increment` (was read-then-write race) |
 | M-10 | MEDIUM | ✅ Fixed | Team invite uses one-time token (emailed) instead of temp password in HTTP response |
 | M-11 | MEDIUM | ✅ Fixed | `mustChangePassword` flag forces password change on first login after invite |
+| L-5 | LOW | ✅ Fixed | Webhook backoff off-by-one — `BACKOFF_SCHEDULE[attempt - 1]` (was `[attempt]`) |
+| L-8 | LOW | ✅ Fixed | `AuditQuerySchema` uses `cursor` (was `offset` — queryAuditLog expects cursor, offset was silently ignored) |
+| L-11 | LOW | ✅ Fixed | `getEffectivePerMinuteLimit` uses `Math.min` (was `Math.max`) — allows emergency throttling below plan floor |
 
-**Residual risk:** LOW — all security-critical flows (enrollment, billing, auth) now have replay protection, atomic operations, and rate limiting.
+**Residual risk:** LOW — all security-critical flows (enrollment, billing, auth) now have replay protection, atomic operations, rate limiting, and correct pagination.
 
 ---
 
 ### A05 — Security Misconfiguration — ✅ PASS
 
-**Findings addressed:** C-5, C-9, H-4, H-8, H-9, M-2, M-7, M-13, M-14
+**Findings addressed:** C-5, C-9, H-4, H-8, H-9, M-2, M-7, M-13, M-14, L-1
 
 | Finding | Severity | Status | Fix |
 |---------|----------|--------|-----|
@@ -109,8 +116,9 @@ All 45 actionable findings from the black-hat penetration test (12 CRITICAL + 15
 | M-7 | MEDIUM | ✅ Fixed | CSP coherent — no `unsafe-inline` + `require-trusted-types` contradiction |
 | M-13 | MEDIUM | ✅ Fixed | Metrics endpoint always authenticated (loopback OR API key) |
 | M-14 | MEDIUM | ✅ Fixed | Health endpoint exposes only status — no PID, heap, latencies |
+| L-1 | LOW | ✅ Fixed | Session cookie `SameSite=Strict` (was `Lax`) — defeats CSRF via cross-site navigation |
 
-**Residual risk:** LOW — production refuses to boot with SQLite, requires `VERIFACE_ALLOWED_ORIGINS`, and enforces strict CSP + HSTS preload.
+**Residual risk:** LOW — production refuses to boot with SQLite, requires `VERIFACE_ALLOWED_ORIGINS`, and enforces strict CSP + HSTS preload + `__Host-` cookie prefix.
 
 ---
 
@@ -129,7 +137,7 @@ All 45 actionable findings from the black-hat penetration test (12 CRITICAL + 15
 
 ### A07 — Identification and Authentication Failures — ✅ PASS
 
-**Findings addressed:** H-2, H-9, H-10, H-15, C-9, M-5, M-9, M-11
+**Findings addressed:** H-2, H-9, H-10, H-15, C-9, M-5, M-9, M-11, L-2
 
 | Finding | Severity | Status | Fix |
 |---------|----------|--------|-----|
@@ -141,14 +149,15 @@ All 45 actionable findings from the black-hat penetration test (12 CRITICAL + 15
 | M-5 | MEDIUM | ✅ Fixed | TOTP secrets encrypted at rest |
 | M-9 | MEDIUM | ✅ Fixed | API key `expiresInDays` validated (1–365 days) |
 | M-11 | MEDIUM | ✅ Fixed | Forced password change on team invite |
+| L-2 | LOW | ✅ Fixed | JWT `iss` + `aud` claims validated on session + 2FA pending tokens — token confusion defense |
 
-**Residual risk:** LOW — auth flows have rate limiting, replay protection, constant-time comparisons, and encrypted secrets at rest.
+**Residual risk:** LOW — auth flows have rate limiting, replay protection, constant-time comparisons, encrypted secrets at rest, and JWT claim validation.
 
 ---
 
 ### A08 — Software and Data Integrity Failures — ✅ PASS
 
-**Findings addressed:** C-8, H-14, M-16, M-17
+**Findings addressed:** C-8, H-14, M-16, M-17, L-4, L-10, L-12
 
 | Finding | Severity | Status | Fix |
 |---------|----------|--------|-----|
@@ -156,22 +165,25 @@ All 45 actionable findings from the black-hat penetration test (12 CRITICAL + 15
 | H-14 | HIGH | ✅ Fixed | DEK destruction on template revocation (webhookSecret rotation) |
 | M-16 | MEDIUM | ✅ Fixed | FIPS self-tests cached with 1-hour TTL + `forceFipsSelfTestReRun()` |
 | M-17 | MEDIUM | ✅ Fixed | FIPS SHA-256 KAT uses NIST test vectors (was tautological) |
+| L-4 | LOW | ✅ Fixed | Audit event types expanded from 30 to 50; 18 misused types corrected (billing, user, compliance) |
+| L-10 | LOW | ✅ Fixed | Redis INCR + EXPIRE now atomic via Lua script (was race-prone two-call sequence) |
+| L-12 | LOW | ✅ Fixed | NowPayments webhook verifies HMAC signature BEFORE JSON.parse (was parse-then-verify) |
 
-**Residual risk:** LOW — audit chain is tamper-evident, FIPS self-tests are genuine, and DEK destruction is cryptographically irreversible.
+**Residual risk:** LOW — audit chain is tamper-evident, FIPS self-tests are genuine, DEK destruction is cryptographically irreversible, Redis rate limiting is atomic, and webhook signature verification happens before body parsing.
 
 ---
 
 ### A09 — Security Logging and Monitoring Failures — ✅ PASS
 
-**Findings addressed:** M-4, M-6, L-4 (LOW — pending)
+**Findings addressed:** M-4, M-6, L-4
 
 | Finding | Severity | Status | Fix |
 |---------|----------|--------|-----|
 | M-4 | MEDIUM | ✅ Fixed | Audit payload PII redacted before persistence (SHA-256 prefix — correlatable, not reversible) |
 | M-6 | MEDIUM | ✅ Fixed | Logger redaction paths expanded from ~26 to ~80 fields |
-| L-4 | LOW | 🔄 Pending | Audit event type misuse (minor — next sprint) |
+| L-4 | LOW | ✅ Fixed | Audit event types expanded from 30 to 50; 18 misused types corrected for accurate SIEM filtering and alerting |
 
-**Residual risk:** LOW — all PII is redacted in both audit logs and application logs. SIEM streaming (SSE + CEF/LEEF/syslog formats) is available for real-time monitoring.
+**Residual risk:** LOW — all PII is redacted in both audit logs and application logs. Audit event types are semantically accurate for SIEM filtering. SIEM streaming (SSE + CEF/LEEF/syslog formats) is available for real-time monitoring.
 
 ---
 
@@ -194,40 +206,27 @@ All 45 actionable findings from the black-hat penetration test (12 CRITICAL + 15
 
 | OWASP Category | Status | Findings Fixed | Residual Risk |
 |----------------|--------|----------------|---------------|
-| A01 — Broken Access Control | ✅ PASS | 6/6 | LOW |
+| A01 — Broken Access Control | ✅ PASS | 7/7 | LOW |
 | A02 — Cryptographic Failures | ✅ PASS | 10/10 | LOW |
-| A03 — Injection | ✅ PASS | 3/3 | NONE |
-| A04 — Insecure Design | ✅ PASS | 10/10 | LOW |
-| A05 — Security Misconfiguration | ✅ PASS | 9/9 | LOW |
+| A03 — Injection | ✅ PASS | 6/6 | NONE |
+| A04 — Insecure Design | ✅ PASS | 13/13 | LOW |
+| A05 — Security Misconfiguration | ✅ PASS | 10/10 | LOW |
 | A06 — Vulnerable Components | ⚠️ MONITORING | 0/2 (INFO) | LOW |
-| A07 — ID & Auth Failures | ✅ PASS | 8/8 | LOW |
-| A08 — Software Integrity | ✅ PASS | 4/4 | LOW |
-| A09 — Logging Failures | ✅ PASS | 2/3 (1 LOW pending) | LOW |
+| A07 — ID & Auth Failures | ✅ PASS | 9/9 | LOW |
+| A08 — Software Integrity | ✅ PASS | 7/7 | LOW |
+| A09 — Logging Failures | ✅ PASS | 3/3 | LOW |
 | A10 — SSRF | ✅ PASS | 0/0 | NONE |
 
 **Overall OWASP compliance: 9/10 categories PASS, 1/10 MONITORING (INFO-level dependency audit pending).**
 
 ---
 
-## Remaining Work (Next Sprint)
+## Remaining Work (INFO only — no exploitable risk)
 
-### LOW (12 findings — defense in depth)
-- L-1: Session cookie SameSite=Strict (currently Lax)
-- L-2: JWT iss/aud claim validation
-- L-3: `__Host-` cookie prefix
-- L-4: Audit event type misuse cleanup
-- L-5: Webhook backoff off-by-one
-- L-6, L-7: Input length validation tightening
-- L-8: AuditQuerySchema offset→cursor
-- L-9: CSV export null handling
-- L-10: Redis INCR+EXPIRE race (use Lua script)
-- L-11: Emergency throttling override
-- L-12: NowPayments body parsed before signature verification
-
-### INFO (8 findings — monitoring)
+### INFO (8 findings — monitoring/hygiene)
 - I-1: SQLite refused in production (already enforced)
 - I-2: Unused tenant signing keypair
-- I-3: CSRF protection on cookie-auth endpoints
+- I-3: CSRF protection on cookie-auth endpoints (mitigated by SameSite=Strict + L-1)
 - I-4: `VERIFACE_ALLOW_INSECURE_DEV` footgun
 - I-5: Test email endpoint recipient restriction
 - I-6: `reportUsageToStripe` return value
@@ -239,18 +238,19 @@ All 45 actionable findings from the black-hat penetration test (12 CRITICAL + 15
 ## Verification
 
 - **TypeScript compilation:** All modified files compile cleanly (`bunx tsc --noEmit`)
-- **Prisma schema:** Applied via `prisma db push` — new fields (`mustChangePassword`, `inviteTokenHash`, `inviteTokenExpiresAt`) active
-- **Git:** Commit `c6e2bdc` pushed to `main` at https://github.com/ahmedkobbi/veriface-edge
-- **Files modified:** 24 files changed, 1 new file (`src/lib/field-encryption.ts`), 1161 insertions, 115 deletions
+- **Prisma schema:** Applied via `prisma db push` — fields (`mustChangePassword`, `inviteTokenHash`, `inviteTokenExpiresAt`) active
+- **Git:** Commits `c6e2bdc` (MEDIUM) + `feb40bd` (LOW) pushed to `main` at https://github.com/ahmedkobbi/veriface-edge
+- **Files modified (LOW round):** 24 files changed, 321 insertions, 59 deletions
 
 ---
 
 ## Conclusion
 
-VeriFace Edge now meets or exceeds OWASP Top 10 (2021) security standards across all categories. The platform has undergone three rounds of remediation:
+VeriFace Edge now meets or exceeds OWASP Top 10 (2021) security standards across all categories. The platform has undergone four rounds of remediation:
 
 1. **CRITICAL (C-1 to C-12):** Fixed authentication bypass, billing fraud, IDOR, crypto no-ops, audit tampering, and replay attacks
 2. **HIGH (H-1 to H-15):** Fixed timing attacks, rate limiting, token storage, CSP, HTML injection, WebAuthn, TOTP replay, race conditions, and constant-time comparisons
 3. **MEDIUM (M-1 to M-18):** Fixed body size enforcement, multi-instance state, PII redaction, TOTP encryption, SSE limits, API key validation, team invite security, info leaks, billing verification, and FIPS self-test integrity
+4. **LOW (L-1 to L-12):** Fixed cookie security (SameSite=Strict + `__Host-` prefix), JWT claim validation (iss + aud), audit event type semantics, webhook backoff, input validation, CSV export robustness, Redis atomicity, emergency throttling, and webhook signature-before-parse ordering
 
-The remaining LOW and INFO findings are defense-in-depth recommendations that do not introduce exploitable vulnerabilities. They are scheduled for the next hardening sprint.
+**57 of 65 findings resolved** (12 CRITICAL + 15 HIGH + 18 MEDIUM + 12 LOW). The remaining 8 INFO-level findings are defense-in-depth observations with no exploitable risk — they are monitoring and hygiene recommendations for continuous improvement.
