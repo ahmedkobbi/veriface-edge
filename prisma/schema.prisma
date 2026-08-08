@@ -810,3 +810,44 @@ model WebhookEvent {
   @@index([provider, processed])
   @@index([receivedAt])
 }
+
+/// Backup record — audit trail for all database backups.
+model BackupRecord {
+  id              String   @id @default(cuid())
+  /// Backup ID (format: veriface-backup-YYYY-MM-DD-THHMMSSZ).
+  backupId        String   @unique
+  /// Backup type: 'sqlite' | 'postgres'.
+  backupType      String
+  /// Source database path or connection (redacted).
+  source          String
+  /// Encrypted backup file name.
+  encryptedFile   String
+  /// Encrypted file size in bytes.
+  encryptedSizeBytes Int
+  /// SHA-256 of the encrypted file.
+  encryptedSha256 String
+  /// Original (pre-encryption) file size in bytes.
+  originalSizeBytes Int
+  /// SHA-256 of the original file.
+  originalSha256  String
+  /// Encryption algorithm (always 'AES-256-GCM').
+  encryptionAlgorithm String @default("AES-256-GCM")
+  /// Encryption IV (hex, 24 chars = 12 bytes).
+  iv              String
+  /// S3 bucket (if uploaded).
+  s3Bucket        String?
+  /// S3 key (if uploaded).
+  s3Key           String?
+  /// S3 URI (if uploaded).
+  s3Uri           String?
+  /// Status: 'success' | 'failed'.
+  status          String   @default("success")
+  /// Error message (if failed).
+  error           String?
+  /// Host that created the backup.
+  host            String?
+  createdAt       DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([status])
+}
