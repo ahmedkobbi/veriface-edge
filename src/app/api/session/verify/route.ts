@@ -83,7 +83,9 @@ const COSINE_THRESHOLD = 0.62
 
 export async function POST(req: NextRequest) {
   const startTime = Date.now()
-  const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  // SECURITY FIX (B-09): Use trusted-proxy-aware IP extraction.
+  const { getClientIp } = await import('@/lib/client-ip')
+  const clientIp = getClientIp(req)
 
   // API key authentication
   // Check request body size (DoS protection)

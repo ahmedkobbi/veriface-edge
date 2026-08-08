@@ -82,7 +82,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Email and password required' }, { status: 400 })
     }
 
-    const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+    // SECURITY FIX (B-09): Use trusted-proxy-aware IP extraction.
+    const { getClientIp } = await import('@/lib/client-ip')
+    const clientIp = getClientIp(req)
     const userAgent = req.headers.get('user-agent') ?? 'unknown'
 
     // SECURITY FIX (H-2): Rate limit auth endpoints to prevent brute-force.

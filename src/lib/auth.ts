@@ -375,7 +375,12 @@ export async function requireApiKey(
   | { ok: true; auth: AuthResult; ip: string; rateLimitHeaders: Record<string, string> }
   | { ok: false; response: NextResponse }
 > {
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  // SECURITY FIX (B-09): Use trusted-proxy-aware IP extraction.
+  // Previously: `req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()`
+  // — XFF is client-controlled, allowing rate-limit bypass via IP spoofing.
+  // Now: only trust XFF if the TCP source is a configured trusted proxy.
+  const { getClientIp } = await import('@/lib/client-ip')
+  const ip = getClientIp(req)
 
   const auth = await authenticateRequest(req)
   if (!auth.authenticated) {

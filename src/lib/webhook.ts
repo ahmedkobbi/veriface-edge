@@ -209,6 +209,20 @@ export async function processWebhookQueue(maxToProcess: number = 10): Promise<{
     const deliveryStart = Date.now()
 
     try {
+      // SECURITY FIX (B-07): Use 'error' instead of 'manual'.
+      //
+      // 'manual' returns the 3xx response without following the redirect —
+      // BUT in some fetch implementations (undici in Node.js), the TCP
+      // connection to the redirect target is still established internally
+      // before the 3xx is returned. This creates an SSRF oracle: an attacker
+      // can register a webhook URL that returns 302 to an internal IP, and
+      // the server connects to that IP even though it doesn't follow through.
+      //
+      // 'error' throws a TypeError on ANY redirect response, preventing the
+      // server from even receiving the 3xx headers. This is the safest option
+      // — no redirect target is ever contacted.
+      //
+      // We catch the TypeError and convert it to a clear error message.
       const response = await fetch(tenant.webhookUrl, {
         method: 'POST',
         headers: {
@@ -220,7 +234,7 @@ export async function processWebhookQueue(maxToProcess: number = 10): Promise<{
         },
         body: wh.payload,
         signal: AbortSignal.timeout(10_000),
-        redirect: 'manual' as RequestRedirect,  // Prevents SSRF via redirect
+        redirect: 'error' as RequestRedirect,  // SECURITY FIX (B-07): throw on any redirect
       })
       httpCode = response.status
       const duration = (Date.now() - deliveryStart) / 1000
@@ -247,14 +261,22 @@ export async function processWebhookQueue(maxToProcess: number = 10): Promise<{
         continue
       }
 
-      // 3xx redirect — reject (SSRF vector)
-      if (response.status >= 300 && response.status < 400) {
-        errorMsg = `Redirect not allowed (HTTP ${response.status}) — possible SSRF`
-      } else {
-        errorMsg = `HTTP ${response.status}`
-      }
+      // Any non-2xx is a failure (3xx is unreachable here because redirect: 'error' throws)
+      errorMsg = `HTTP ${response.status}`
     } catch (e) {
-      errorMsg = e instanceof Error ? e.message : 'Network error'
+      // SECURITY FIX (B-07): Detect redirect errors specifically.
+      // fetch with redirect: 'error' throws a TypeError with message
+      // "redirect mode is set to error" when a 3xx is received.
+      const errMsg = e instanceof Error ? e.message : 'Network error'
+      if (errMsg.includes('redirect') || errMsg.includes('Redirect')) {
+        errorMsg = `Redirect response rejected (SSRF protection) — webhook endpoint returned a 3xx redirect`
+        logger.warn(
+          { tenantId: wh.tenantId, webhookId: wh.id, webhookUrl: wh.tenantId },
+          'Webhook delivery rejected: endpoint returned redirect (possible SSRF attempt)',
+        )
+      } else {
+        errorMsg = errMsg
+      }
     }
 
     // Failure path — schedule retry or dead-letter
