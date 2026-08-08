@@ -20,7 +20,9 @@ import { logger } from '@/lib/logger'
 import { z } from 'zod'
 
 const SettingsUpdateSchema = z.object({
-  livenessThreshold: z.number().min(0.1).max(1.0).optional(),
+  // SECURITY FIX (H-8): Enforce minimum liveness threshold of 0.5
+  // Previously allowed 0.1 — defeated anti-spoofing (printed photos pass)
+  livenessThreshold: z.number().min(0.5).max(1.0).optional(),
   rateLimitPerMin: z.number().int().min(1).max(1000).optional(),
   maxSessionAgeSec: z.number().int().min(10).max(3600).optional(),
   webhookUrl: z.string().url().regex(/^https:\/\//).nullable().optional(),

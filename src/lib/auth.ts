@@ -271,7 +271,8 @@ interface Bucket {
 }
 
 // In-memory cache (per-instance). Multi-instance deployments should use Redis.
-const rateLimitCache = new Map<string, Bucket>()
+// Exported for auth endpoint rate limiting (H-2 fix)
+export const rateLimitCache = new Map<string, Bucket>()
 const CACHE_TTL_MS = 70 * 1000  // 70 seconds — slightly longer than the 60s window
 
 // Cleanup expired buckets every 60 seconds

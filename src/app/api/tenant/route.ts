@@ -26,6 +26,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createTenant, getTenant } from '@/lib/tenant'
 import { createApiKey, requireApiKey } from '@/lib/auth'
+import { constantTimeEqual } from '@/lib/crypto-server'
 import { safeErrorResponse } from '@/lib/config'
 import { logger } from '@/lib/logger'
 
@@ -42,7 +43,9 @@ export async function POST(req: NextRequest) {
           { status: 503 },
         )
       }
-      if (bootstrapSecret !== expectedSecret) {
+      // SECURITY FIX (H-15): Use constant-time comparison instead of !==
+      // to prevent timing attacks on the bootstrap secret.
+      if (!constantTimeEqual(bootstrapSecret ?? '', expectedSecret)) {
         return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
       }
     }

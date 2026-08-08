@@ -23,10 +23,12 @@ const SECURITY_HEADERS: Record<string, string> = {
   'Cross-Origin-Resource-Policy': 'same-origin',
   'X-DNS-Prefetch-Control': 'off',
   'X-Permitted-Cross-Domain-Policies': 'none',
-  // Content-Security-Policy — strict, allows only self + known CDN origins
+  // Content-Security-Policy — strict, allows only self
+  // SECURITY FIX (H-5): Removed 'unsafe-inline' and external CDN.
+  // Inline scripts must use nonces or hashes. Dependencies are self-hosted.
   'Content-Security-Policy': [
     "default-src 'self'",
-    "script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline' https://cdn.jsdelivr.net",
+    "script-src 'self' 'wasm-unsafe-eval'",
     "connect-src 'self' https: wss:",
     "img-src 'self' data: blob: https:",
     "media-src 'self' blob:",

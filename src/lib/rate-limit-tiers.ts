@@ -168,8 +168,19 @@ export async function incrementMonthlyUsage(
     })
 
     if (existing) {
-      const newCount = existing.count + 1
-      // Check if we just crossed threshold or limit
+      // SECURITY FIX (H-12): Use atomic increment instead of read-then-write.
+      // Previously: newCount = existing.count + 1, then write count: newCount
+      // Two concurrent transactions both read count=100, both write 101.
+      // Fix: Use Prisma's atomic { increment: 1 } — database handles atomically.
+      const updated = await tx.apiUsageCounter.update({
+        where: { id: existing.id },
+        data: {
+          count: { increment: 1 },
+        },
+      })
+
+      // Check if we just crossed threshold or limit (based on new count)
+      const newCount = updated.count
       const justCrossedThreshold =
         !existing.thresholdAlertSent &&
         plan.monthlyLimit > 0 &&
@@ -180,15 +191,22 @@ export async function incrementMonthlyUsage(
         plan.monthlyLimit > 0 &&
         newCount >= plan.monthlyLimit
 
-      return tx.apiUsageCounter.update({
-        where: { id: existing.id },
-        data: {
-          count: newCount,
-          // Mark flags so we don't re-fire alerts
-          thresholdAlertSent: existing.thresholdAlertSent || justCrossedThreshold,
-          limitAlertSent: existing.limitAlertSent || justCrossedLimit,
-        },
-      })
+      // Update alert flags (separate update — doesn't affect count)
+      if (justCrossedThreshold || justCrossedLimit) {
+        await tx.apiUsageCounter.update({
+          where: { id: existing.id },
+          data: {
+            thresholdAlertSent: justCrossedThreshold,
+            limitAlertSent: justCrossedLimit,
+          },
+        })
+      }
+
+      return {
+        ...updated,
+        thresholdAlertSent: existing.thresholdAlertSent || justCrossedThreshold,
+        limitAlertSent: existing.limitAlertSent || justCrossedLimit,
+      }
     }
 
     // First call this month

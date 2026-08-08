@@ -12,7 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { sendPasswordResetEmail } from '@/lib/email'
-import { secureRandomHex } from '@/lib/crypto-server'
+import { secureRandomHex, sha256Hex } from '@/lib/crypto-server'
 import { logger } from '@/lib/logger'
 
 const RESET_TOKEN_TTL_MINUTES = 60
@@ -49,8 +49,13 @@ export async function POST(req: NextRequest) {
     const token = secureRandomHex(32)
     const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MINUTES * 60 * 1000)
 
+    // SECURITY FIX (H-3): Hash the token before storing — DB compromise
+    // should not reveal usable reset tokens. The plaintext token is only
+    // sent via email (out-of-band) and never persisted.
+    const tokenHash = sha256Hex(token)
+
     await db.passwordResetToken.create({
-      data: { userId: user.id, token, expiresAt },
+      data: { userId: user.id, token: tokenHash, expiresAt },
     })
 
     // Send email

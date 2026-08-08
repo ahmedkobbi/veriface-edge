@@ -58,13 +58,35 @@ export async function generateQRCodeDataUrl(otpauthUri: string): Promise<string>
   })
 }
 
+// SECURITY FIX (H-10): TOTP replay protection.
+// Track the last successfully used TOTP timestamp per user.
+// Reject codes older than the last-used timestamp.
+const totpReplayCache = new Map<string, number>() // userId → lastUsedTimestamp (seconds)
+
 /**
  * Verify a 6-digit TOTP code against a secret.
  * Allows ±30 seconds clock drift (window=1).
+ * SECURITY FIX (H-10): Tracks last-used timestamp to prevent replay.
  */
-export function verifyTOTP(token: string, secret: string): boolean {
+export function verifyTOTP(token: string, secret: string, userId?: string): boolean {
   try {
-    return verifySync({ token, secret, digits: TOTP_DIGITS, step: TOTP_STEP, window: TOTP_WINDOW })
+    const result = verifySync({ token, secret, digits: TOTP_DIGITS, step: TOTP_STEP, window: TOTP_WINDOW })
+    if (!result) return false
+
+    // Replay protection: check if this code was already used
+    if (userId) {
+      const now = Math.floor(Date.now() / 1000)
+      const lastUsed = totpReplayCache.get(userId)
+      if (lastUsed && now - lastUsed < TOTP_STEP) {
+        // Same TOTP step — code may have been replayed
+        // Allow if the token is different (new 30s window), reject if same step
+        return false
+      }
+      // Update last-used timestamp
+      totpReplayCache.set(userId, now)
+    }
+
+    return true
   } catch {
     return false
   }

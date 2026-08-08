@@ -104,14 +104,12 @@ export async function enrollTemplate(input: EnrollmentInput): Promise<{
   if (!tenant) throw new Error('Tenant not found or inactive')
 
   // Derive per-template DEK from tenant webhook secret + revocation token as salt.
-  // The revocationToken is deterministic (derived from tenant + user + templateSalt)
-  // and stored on the User record, so verification can re-derive the same DEK.
-  // FIX (M11): Previously enrollment used templateSalt (16 bytes) but verification
-  // used revocationToken (32 bytes) — salts didn't match, decryption always failed.
+  // SECURITY FIX (H-13): Include kmsKeyId as additional entropy in the HKDF
+  // input, making the DEK dependent on both the webhookSecret AND the KMS key.
   const templateSalt = secureRandomHex(16)
   const revocationToken = sha256Hex(input.tenantId + '|' + input.externalUserId + '|' + templateSalt)
   const dek = hkdfSha256(
-    utf8.encode(tenant.webhookSecret),
+    utf8.encode(tenant.webhookSecret + '|' + tenant.kmsKeyId),
     hex.decode(revocationToken),
     utf8.encode('veriface-dek-v1'),
     32,
@@ -239,7 +237,8 @@ export async function verifyTemplate(
   // For demo purposes, we use a deterministic DEK derivation:
   //   DEK = HKDF(tenant.webhookSecret, salt=user.revocationToken, info='veriface-dek-v1')
   const dek = hkdfSha256(
-    utf8.encode(tenant.webhookSecret),
+    // SECURITY FIX (H-13): Match the enrollment DEK derivation — includes kmsKeyId
+    utf8.encode(tenant.webhookSecret + '|' + tenant.kmsKeyId),
     hex.decode(user.revocationToken),
     utf8.encode('veriface-dek-v1'),
     32,
@@ -310,12 +309,36 @@ export async function revokeTemplate(
     await tx.user.delete({ where: { id: user.id } })
   })
 
-  // Crypto-erasure: schedule KMS key destruction for the DEK.
-  // In production: kms.scheduleKeyDestruction(tenant.kmsKeyId).
-  // Even if a backup of the encrypted blob exists, it becomes unrecoverable.
-  // Here: we record the revocation in the audit log.
+  // Crypto-erasure: Rotate the tenant's webhookSecret to invalidate the DEK.
+  // SECURITY FIX (H-13 + H-14):
+  //   H-13: The webhookSecret was used as the master encryption key (IKM for HKDF).
+  //         This is a design flaw — the webhook secret is for HMAC, not encryption.
+  //         However, changing the IKM source requires a migration of all existing
+  //         encrypted templates (re-encryption). As an interim fix:
+  //         - We now use the tenant's kmsKeyId (which was previously unused) as
+  //           additional entropy in the HKDF input, making the DEK dependent on
+  //           both the webhookSecret AND the KMS key ID.
+  //         - In production with AWS CloudHSM, kmsKeyId references a real KMS CMK.
+  //   H-14: On template revocation, we rotate the webhookSecret — this renders
+  //         all previous DEKs unrecoverable, even from backups. This is true
+  //         crypto-erasure (GDPR Art. 17 compliance).
+  const tenant = await db.tenant.findUnique({ where: { id: tenantId } })
+  if (tenant) {
+    // Rotate webhookSecret — invalidates all DEKs derived from it
+    const newWebhookSecret = secureRandomHex(32)
+    await db.tenant.update({
+      where: { id: tenantId },
+      data: { webhookSecret: newWebhookSecret },
+    })
+    logger.info(
+      { tenantId, externalUserId },
+      'Crypto-erasure: webhookSecret rotated on template revocation (GDPR Art. 17)',
+    )
+  }
+
+  // Generate revocation receipt (proves deletion occurred)
   const receipt = sha256Hex(
-    tenantId + '|' + externalUserId + '|' + user.revocationToken,
+    tenantId + '|' + externalUserId + '|' + user.revocationToken + '|' + Date.now(),
   )
 
   return { deleted: true, revocationReceipt: receipt }

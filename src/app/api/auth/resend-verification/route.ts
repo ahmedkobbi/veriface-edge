@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { sendVerificationEmail } from '@/lib/email'
-import { secureRandomHex } from '@/lib/crypto-server'
+import { secureRandomHex, sha256Hex } from '@/lib/crypto-server'
 import { getCookieFromRequest, verifySessionToken } from '@/lib/platform-auth'
 import { logger } from '@/lib/logger'
 
@@ -56,8 +56,11 @@ export async function POST(req: NextRequest) {
     const token = secureRandomHex(32)
     const expiresAt = new Date(Date.now() + VERIFICATION_TOKEN_TTL_HOURS * 60 * 60 * 1000)
 
+    // SECURITY FIX (H-3): Hash the token before storing
+    const tokenHash = sha256Hex(token)
+
     await db.emailVerificationToken.create({
-      data: { userId: user.id, token, expiresAt },
+      data: { userId: user.id, token: tokenHash, expiresAt },
     })
 
     // Send email

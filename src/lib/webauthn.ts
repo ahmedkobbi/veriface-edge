@@ -232,6 +232,25 @@ export async function finishWebAuthnAuthentication(
 
   // Update counter (clone detection)
   const newCounter = verification.authenticationInfo.newCounter
+
+  // SECURITY FIX (H-9): Enforce counter for clone detection.
+  // If newCounter <= stored counter (and counter != 0), the authenticator
+  // may have been cloned. Reject the authentication and alert.
+  if (credential.counter !== 0 && newCounter <= credential.counter) {
+    logger.error(
+      {
+        credentialId: credential.id,
+        storedCounter: credential.counter,
+        newCounter,
+      },
+      'WebAuthn clone detection: counter did not increase — possible cloned authenticator',
+    )
+    return {
+      verified: false,
+      error: 'Clone detection: authenticator counter did not increase. The credential may have been cloned.',
+    }
+  }
+
   await db.webAuthnCredential.update({
     where: { id: credential.id },
     data: { counter: newCounter, lastUsedAt: new Date() },

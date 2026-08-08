@@ -85,6 +85,25 @@ export async function POST(req: NextRequest) {
     const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
     const userAgent = req.headers.get('user-agent') ?? 'unknown'
 
+    // SECURITY FIX (H-2): Rate limit auth endpoints to prevent brute-force.
+    // 5 login attempts per IP per 10 minutes.
+    const rateLimitKey = `auth_login:${clientIp}`
+    const { rateLimitCache } = await import('@/lib/auth')
+    const rl = await rateLimitCache.get(rateLimitKey) ?? { count: 0, windowStart: Date.now() }
+    const WINDOW_MS = 10 * 60 * 1000
+    if (Date.now() - rl.windowStart > WINDOW_MS) {
+      rl.count = 0
+      rl.windowStart = Date.now()
+    }
+    if (rl.count >= 5) {
+      return NextResponse.json(
+        { success: false, error: 'Too many login attempts. Try again later.', code: 'RATE_LIMITED' },
+        { status: 429, headers: { 'Retry-After': '600' } },
+      )
+    }
+    rl.count++
+    rateLimitCache.set(rateLimitKey, rl)
+
     const user = await db.platformUser.findUnique({
       where: { email: email.toLowerCase() },
     })
@@ -95,26 +114,28 @@ export async function POST(req: NextRequest) {
       { status: 401 },
     )
 
-    if (!user) {
-      // Track failed login for non-existent user (still useful for IP-based brute force)
-      recordFailedLogin(email.toLowerCase(), clientIp)
-      return invalidCredentialsResponse
-    }
+    // SECURITY FIX (H-1): Always run bcrypt.compare() even when user is not found,
+    // to prevent timing-based user enumeration. Previously, missing users returned
+    // immediately (~1ms) while existing users took ~100ms (bcrypt) — revealing
+    // which emails are registered.
+    const DUMMY_HASH = '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy' // bcrypt hash of 'dummy'
+    const hashToVerify = user?.passwordHash ?? DUMMY_HASH
+    const valid = await verifyPassword(password, hashToVerify)
 
-    const valid = await verifyPassword(password, user.passwordHash)
-    if (!valid) {
-      const { count, shouldAlert } = recordFailedLogin(email.toLowerCase(), clientIp)
-      if (shouldAlert) {
-        // Fire failed-login alert (best-effort, non-blocking)
-        void notifyFailedLogins({
-          tenantId: user.tenantId ?? 'unknown',
-          to: user.email,
-          userId: user.id,
-          name: user.name ?? undefined,
-          attempts: count,
-          window: '10 minutes',
-          ip: clientIp,
-        }).catch((e) => logger.warn({ error: e }, 'Failed to enqueue failed-login email'))
+    if (!user || !valid) {
+      if (user) {
+        const { count, shouldAlert } = recordFailedLogin(email.toLowerCase(), clientIp)
+        if (shouldAlert) {
+          void notifyFailedLogins({
+            tenantId: user.tenantId ?? 'unknown',
+            to: user.email,
+            userId: user.id,
+            name: user.name ?? undefined,
+            attempts: count,
+            window: '10 minutes',
+            ip: clientIp,
+          }).catch((e) => logger.warn({ error: e }, 'Failed to enqueue failed-login email'))
+        }
       }
       return invalidCredentialsResponse
     }

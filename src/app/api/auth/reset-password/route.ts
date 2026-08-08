@@ -14,6 +14,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { hashPassword, isValidPassword, buildClearCookieHeader } from '@/lib/platform-auth'
+import { sha256Hex } from '@/lib/crypto-server'
 import { logger } from '@/lib/logger'
 
 export async function POST(req: NextRequest) {
@@ -32,8 +33,11 @@ export async function POST(req: NextRequest) {
       }, { status: 400 })
     }
 
+    // SECURITY FIX (H-3): Look up by token hash, not plaintext
+    const tokenHash = sha256Hex(token)
+
     const resetToken = await db.passwordResetToken.findUnique({
-      where: { token },
+      where: { token: tokenHash },
       include: { user: true },
     })
 

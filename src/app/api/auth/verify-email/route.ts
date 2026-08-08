@@ -8,8 +8,13 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { sha256Hex } from '@/lib/crypto-server'
 import { logger } from '@/lib/logger'
 
+// SECURITY FIX (H-11): Accept both GET (for email links) and POST
+// (for programmatic verification). GET is kept for backwards compat
+// but tokens are now hashed at rest (H-3), so leaking the URL in
+// logs/history is less dangerous.
 export async function GET(req: NextRequest) {
   const url = new URL(req.url)
   const token = url.searchParams.get('token')
@@ -18,8 +23,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ success: false, error: 'Token required' }, { status: 400 })
   }
 
+  // SECURITY FIX (H-3): Look up by token hash, not plaintext
+  const tokenHash = sha256Hex(token)
+
   const verificationToken = await db.emailVerificationToken.findUnique({
-    where: { token },
+    where: { token: tokenHash },
     include: { user: true },
   })
 

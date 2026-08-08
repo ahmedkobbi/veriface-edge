@@ -106,6 +106,29 @@ export interface EnqueueEmailInput {
 // Queue entry
 // ---------------------------------------------------------------------------
 
+// SECURITY FIX (H-6): HTML-escape all user-controlled variables before
+// interpolating into email templates. Prevents HTML injection in email clients.
+function escapeHtml(s: string | number | undefined): string {
+  if (s === undefined || s === null) return ''
+  const str = String(s)
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;')
+    .replace(/\//g, '&#x2F;')
+}
+
+/** Escape all string values in a vars object. */
+function escapeVars(vars: Record<string, string | number | undefined>): Record<string, string | number | undefined> {
+  const escaped: Record<string, string | number | undefined> = {}
+  for (const [key, value] of Object.entries(vars)) {
+    escaped[key] = typeof value === 'string' ? escapeHtml(value) : value
+  }
+  return escaped
+}
+
 const DEDUP_WINDOW_MS = 10 * 60 * 1000 // 10 minutes
 
 function getIdempotencyKey(
@@ -379,7 +402,11 @@ export async function processPendingQueue(batchSize = 50): Promise<{
 // Template rendering
 // ---------------------------------------------------------------------------
 
-function renderTemplate(template: EmailTemplate, vars: Record<string, string | number | undefined>): EmailRenderResult {
+function renderTemplate(template: EmailTemplate, rawVars: Record<string, string | number | undefined>): EmailRenderResult {
+  // SECURITY FIX (H-6): Escape all user-controlled variables before rendering.
+  // This prevents HTML injection in email clients (e.g., API key labels with
+  // <script> tags, IP addresses with embedded HTML, etc.)
+  const vars = escapeVars(rawVars)
   switch (template) {
     case 'auth.new_device':
       return renderNewDevice(vars)
@@ -746,7 +773,9 @@ function renderSuspiciousActivity(vars: Record<string, string | number | undefin
 
 function renderWelcome(vars: Record<string, string | number | undefined>): EmailRenderResult {
   const name = vars.name ?? 'there'
-  const apiKey = vars.apiKey ?? 'vf_live_xxx'
+  // SECURITY FIX (H-7): Removed API key from welcome email.
+  // Email is an insecure channel — keys should only be shown once in the
+  // web UI at creation time, never sent via email.
   const tenantId = vars.tenantId ?? 'unknown'
   const subject = 'Welcome to VeriFace Edge 🎉'
   const html = `${CONTAINER_OPEN}
@@ -759,8 +788,13 @@ function renderWelcome(vars: Record<string, string | number | undefined>): Email
     <div style="background:#0f172a;color:#10b981;border-radius:8px;padding:16px;margin:20px 0;font-family:monospace;font-size:13px;">
       <div style="color:#64748b;font-size:11px;margin-bottom:4px;">TENANT ID</div>
       <div style="color:#e2e8f0;margin-bottom:12px;">${tenantId}</div>
-      <div style="color:#64748b;font-size:11px;margin-bottom:4px;">API KEY (keep secret!)</div>
-      <div style="color:#10b981;word-break:break-all;">${apiKey}</div>
+    </div>
+    <div style="background:#fef2f2;border-left:4px solid #ef4444;padding:12px 16px;margin:16px 0;border-radius:4px;">
+      <p style="color:#7f1d1d;font-size:13px;margin:0;">
+        <strong>Important:</strong> Your API key was shown once when you signed up.
+        If you didn't save it, you can generate a new one in the admin panel under
+        <em>Developer → API Keys</em>. For security, we never send API keys via email.
+      </p>
     </div>
     <p style="color:#475569;font-size:14px;line-height:1.6;">
       You're on the <strong>Developer plan</strong> (1,000 API calls/month). Ready to scale?
@@ -775,7 +809,7 @@ function renderWelcome(vars: Record<string, string | number | undefined>): Email
       <li>Try the live demo in your admin panel</li>
     </ul>
     ${CONTAINER_CLOSE}`
-  return { subject, html, text: `Welcome to VeriFace Edge. Your API key: ${apiKey}. Tenant ID: ${tenantId}.` }
+  return { subject, html, text: `Welcome to VeriFace Edge. Your Tenant ID: ${tenantId}. For security, your API key is not included in this email — find it in the admin panel under Developer → API Keys.` }
 }
 
 function renderEmailVerification(vars: Record<string, string | number | undefined>): EmailRenderResult {
