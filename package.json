@@ -92,6 +92,7 @@
     "react-resizable-panels": "^3.0.3",
     "react-syntax-highlighter": "^15.6.1",
     "recharts": "^2.15.4",
+    "redis": "^6.2.0",
     "samlify": "^2.13.1",
     "sharp": "^0.34.3",
     "snarkjs": "^0.7.6",

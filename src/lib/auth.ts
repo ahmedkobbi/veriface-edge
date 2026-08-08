@@ -23,6 +23,7 @@ import {
   type MonthlyUsageResult,
   type PlanDefinition,
 } from '@/lib/rate-limit-tiers'
+import { getCachedApiKey, invalidateApiKeyCache, checkCachedRateLimit } from '@/lib/cache/redis-cache'
 
 // ---------------------------------------------------------------------------
 // API key management
@@ -115,11 +116,21 @@ export async function createApiKey(
  * Revoke an API key. Once revoked, it can no longer be used.
  */
 export async function revokeApiKey(tenantId: string, apiKeyId: string): Promise<boolean> {
+  // Fetch the key hash before revoking (needed for cache invalidation)
+  const keyRecord = await db.apiKey.findUnique({
+    where: { id: apiKeyId },
+    select: { keyHash: true },
+  })
+
   const result = await db.apiKey.updateMany({
     where: { id: apiKeyId, tenantId, active: true },
     data: { active: false, revokedAt: new Date() },
   })
   if (result.count > 0) {
+    // Invalidate cache (L1 + L2) so the revoked key is rejected immediately
+    if (keyRecord) {
+      await invalidateApiKeyCache(keyRecord.keyHash)
+    }
     await appendAudit({
       tenantId,
       eventType: 'api_key.revoked',
@@ -192,9 +203,15 @@ export async function authenticateRequest(req: NextRequest): Promise<AuthResult>
   // reveal only the hash (not the plaintext). The hash itself is not secret.
   // We additionally use constant-time comparison on the stored vs computed hash
   // to eliminate any residual timing side-channel.
-  const apiKey = await db.apiKey.findUnique({
-    where: { keyHash },
-    include: { tenant: true },
+  //
+  // PERFORMANCE: Cache API key lookup in Redis (L2) + in-memory (L1).
+  // This avoids a DB hit on every authenticated request — critical for
+  // high-throughput scenarios (10K concurrent auths).
+  const apiKey = await getCachedApiKey(keyHash, async () => {
+    return db.apiKey.findUnique({
+      where: { keyHash },
+      include: { tenant: true },
+    })
   })
 
   if (!apiKey || !apiKey.active) {
@@ -394,8 +411,10 @@ export async function requireApiKey(
   const plan = getPlan(tenant.planTier)
 
   // --- Per-minute rate limit (per-tenant + IP) ---
+  // PERFORMANCE: Use Redis-based rate limiting for multi-instance coordination.
+  // Falls back to in-memory if Redis is not configured (single-instance dev).
   const perMinLimit = await getEffectivePerMinuteLimit(auth.tenantId!, tenant.rateLimitPerMin)
-  const rl = await checkRateLimit(auth.tenantId!, ip, perMinLimit)
+  const rl = await checkCachedRateLimit(auth.tenantId!, ip, perMinLimit)
 
   // --- Monthly quota check (only for billable endpoints) ---
   let monthlyUsage: MonthlyUsageResult | null = null
